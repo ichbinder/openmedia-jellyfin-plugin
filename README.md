@@ -1,0 +1,35 @@
+# openmedia Jellyfin Plugin
+
+Bindet die persoenliche openmedia-UserLibrary als virtuelle Jellyfin-Library ein.
+Filme werden direkt aus S3 gestreamt (Direct-Play). Primaerer Test-Client: Apple TV / Swiftfin.
+
+- Plugin-GUID: `8cfc3c6a-c39f-467f-8ebe-9f3218724aa1`
+- Target: Jellyfin **10.11+** (`net9.0`, `Jellyfin.Controller` 10.11.x)
+- Status: **S01** — Skelett + Settings-Tab
+
+## Lokaler Dev-Loop (macOS)
+
+```bash
+# Build
+dotnet publish Jellyfin.Plugin.OpenMedia/Jellyfin.Plugin.OpenMedia.csproj \
+  -c Release -o ./publish
+
+# Deploy in den nativen Jellyfin
+PLUGIN_DIR="$HOME/Library/Application Support/jellyfin/plugins/OpenMedia_1.0.0.0"
+mkdir -p "$PLUGIN_DIR"
+cp ./publish/Jellyfin.Plugin.OpenMedia.dll "$PLUGIN_DIR/"
+
+# Jellyfin neu starten (App schliessen + erneut oeffnen)
+# Logs: ~/Library/Application Support/jellyfin/log/log_*.log
+```
+
+Nach dem Restart: **Admin-Dashboard -> Plugins -> openmedia** -> Settings-Tab.
+
+## Naechste Slices
+
+- **S02:** API-Endpoints `/jellyfin/library` + `/jellyfin/stream/:hash` in openmedia-api
+- **S03:** Library-Sync (`IScheduledTask`) + `IMediaSourceProvider`
+- **S04:** Apple TV / Swiftfin End-to-End-Test
+- **S05:** Distribution: `manifest.json` + Plugin-Catalog-URL
+
+Die GSD-Planung lebt in `~/git/movie-test-02/.gsd/milestones/M039/`.

@@ -1,0 +1,21 @@
+# dotnet build artifacts
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+*.csproj.user
+
+# IDE
+.vs/
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Plugin packaging
+*.zip
+artifacts/
+publish/

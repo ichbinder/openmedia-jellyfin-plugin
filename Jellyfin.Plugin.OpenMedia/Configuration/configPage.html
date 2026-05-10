@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <title>openmedia</title>
+</head>
+<body>
+<div id="OpenMediaConfigPage"
+     data-role="page"
+     class="page type-interior pluginConfigurationPage"
+     data-require="emby-input,emby-button,emby-checkbox,emby-select">
+    <div data-role="content">
+        <div class="content-primary">
+            <form id="OpenMediaConfigForm">
+                <div class="verticalSection">
+                    <div class="sectionTitleContainer flex align-items-center">
+                        <h2 class="sectionTitle">openmedia</h2>
+                    </div>
+                    <p>
+                        Verbindet Jellyfin mit deinem openmedia-Account. Filme deiner UserLibrary
+                        erscheinen als virtuelle Library und werden direkt aus S3 gestreamt.
+                    </p>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="OpenMediaApiUrl">
+                        API-URL
+                    </label>
+                    <input is="emby-input"
+                           type="url"
+                           id="OpenMediaApiUrl"
+                           required
+                           placeholder="https://api.mediatoken.de" />
+                    <div class="fieldDescription">
+                        Basis-URL der openmedia-API. Standard: <code>https://api.mediatoken.de</code>.
+                    </div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="OpenMediaApiToken">
+                        API-Token
+                    </label>
+                    <input is="emby-input"
+                           type="password"
+                           id="OpenMediaApiToken"
+                           required
+                           autocomplete="off"
+                           placeholder="om_..." />
+                    <div class="fieldDescription">
+                        Persönlicher API-Token aus dem openmedia-Profil unter <em>API-Tokens</em>.
+                        Beginnt mit <code>om_</code>.
+                    </div>
+                </div>
+
+                <div>
+                    <button is="emby-button"
+                            type="submit"
+                            class="raised button-submit block emby-button">
+                        <span>Speichern</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        (function () {
+            // Die Plugin-GUID muss zur Plugin.cs Id passen.
+            var OpenMediaPluginId = '8cfc3c6a-c39f-467f-8ebe-9f3218724aa1';
+
+            function loadConfig(view) {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(OpenMediaPluginId).then(function (config) {
+                    view.querySelector('#OpenMediaApiUrl').value = config.ApiUrl || '';
+                    view.querySelector('#OpenMediaApiToken').value = config.ApiToken || '';
+                    Dashboard.hideLoadingMsg();
+                });
+            }
+
+            function saveConfig(view) {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(OpenMediaPluginId).then(function (config) {
+                    config.ApiUrl = view.querySelector('#OpenMediaApiUrl').value.trim();
+                    config.ApiToken = view.querySelector('#OpenMediaApiToken').value.trim();
+                    ApiClient.updatePluginConfiguration(OpenMediaPluginId, config).then(function (result) {
+                        Dashboard.processPluginConfigurationUpdateResult(result);
+                    });
+                });
+            }
+
+            document.querySelector('#OpenMediaConfigPage').addEventListener('pageshow', function () {
+                loadConfig(this);
+            });
+
+            document.querySelector('#OpenMediaConfigForm').addEventListener('submit', function (e) {
+                e.preventDefault();
+                saveConfig(document.querySelector('#OpenMediaConfigPage'));
+                return false;
+            });
+        })();
+    </script>
+</div>
+</body>
+</html>
