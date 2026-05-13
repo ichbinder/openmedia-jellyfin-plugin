@@ -51,6 +51,21 @@
                     </div>
                 </div>
 
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="OpenMediaStrmDirectory">
+                        STRM-Verzeichnis
+                    </label>
+                    <input is="emby-input"
+                           type="text"
+                           id="OpenMediaStrmDirectory"
+                           placeholder="/config/openmedia-strm" />
+                    <div class="fieldDescription">
+                        Absoluter Pfad zu einem Verzeichnis das in Jellyfin als <em>Movies</em>-Library
+                        eingebunden ist. Der Sync-Task legt dort <code>{hash}.strm</code>-Dateien an.
+                        Leer lassen um den Sync zu deaktivieren.
+                    </div>
+                </div>
+
                 <div>
                     <button is="emby-button"
                             type="submit"
@@ -72,6 +87,7 @@
                 ApiClient.getPluginConfiguration(OpenMediaPluginId).then(function (config) {
                     view.querySelector('#OpenMediaApiUrl').value = config.ApiUrl || '';
                     view.querySelector('#OpenMediaApiToken').value = config.ApiToken || '';
+                    view.querySelector('#OpenMediaStrmDirectory').value = config.StrmDirectory || '';
                     Dashboard.hideLoadingMsg();
                 });
             }
@@ -81,6 +97,7 @@
                 ApiClient.getPluginConfiguration(OpenMediaPluginId).then(function (config) {
                     config.ApiUrl = view.querySelector('#OpenMediaApiUrl').value.trim();
                     config.ApiToken = view.querySelector('#OpenMediaApiToken').value.trim();
+                    config.StrmDirectory = view.querySelector('#OpenMediaStrmDirectory').value.trim();
                     ApiClient.updatePluginConfiguration(OpenMediaPluginId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
                     });
