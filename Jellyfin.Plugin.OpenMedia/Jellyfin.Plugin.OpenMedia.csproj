@@ -20,4 +20,8 @@
     <EmbeddedResource Include="Configuration\configPage.html" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Jellyfin.Plugin.OpenMedia.Tests" />
+  </ItemGroup>
+
 </Project>
