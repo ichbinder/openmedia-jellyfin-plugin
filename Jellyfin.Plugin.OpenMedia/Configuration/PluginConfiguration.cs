@@ -13,4 +13,11 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>om_-API-Token des Users (aus dem openmedia-Profil kopiert)</summary>
     public string ApiToken { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Absoluter Pfad zum Verzeichnis in das die STRM-Dateien synchronisiert werden.
+    /// Muss eine in Jellyfin als Library eingebundene oeffentliche Movies-Folder sein.
+    /// Leerer String = STRM-Sync deaktiviert.
+    /// </summary>
+    public string StrmDirectory { get; set; } = string.Empty;
 }
