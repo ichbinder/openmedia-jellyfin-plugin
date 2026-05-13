@@ -16,8 +16,19 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Absoluter Pfad zum Verzeichnis in das die STRM-Dateien synchronisiert werden.
-    /// Muss eine in Jellyfin als Library eingebundene oeffentliche Movies-Folder sein.
-    /// Leerer String = STRM-Sync deaktiviert.
+    /// Leer = Default unter ApplicationPaths.DataPath/openmedia-strm.
     /// </summary>
     public string StrmDirectory { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Name der virtuellen Jellyfin-Library die das Plugin beim Start automatisch anlegt
+    /// (falls AutoCreateLibrary aktiv ist und keine Library mit diesem Namen existiert).
+    /// </summary>
+    public string LibraryName { get; set; } = "openmedia";
+
+    /// <summary>
+    /// Wenn true legt das Plugin beim Start automatisch eine Movies-Library mit Namen
+    /// <see cref="LibraryName"/> an die auf <see cref="StrmDirectory"/> zeigt.
+    /// </summary>
+    public bool AutoCreateLibrary { get; set; } = true;
 }

@@ -60,9 +60,36 @@
                            id="OpenMediaStrmDirectory"
                            placeholder="/config/openmedia-strm" />
                     <div class="fieldDescription">
-                        Absoluter Pfad zu einem Verzeichnis das in Jellyfin als <em>Movies</em>-Library
-                        eingebunden ist. Der Sync-Task legt dort <code>{hash}.strm</code>-Dateien an.
-                        Leer lassen um den Sync zu deaktivieren.
+                        Absoluter Pfad zum STRM-Verzeichnis. Leer lassen fuer den Default unter
+                        <code>&lt;data&gt;/openmedia-strm</code>. Das Plugin legt das Verzeichnis
+                        beim Start automatisch an.
+                    </div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="OpenMediaLibraryName">
+                        Library-Name
+                    </label>
+                    <input is="emby-input"
+                           type="text"
+                           id="OpenMediaLibraryName"
+                           placeholder="openmedia" />
+                    <div class="fieldDescription">
+                        Name der Jellyfin-Library die das Plugin automatisch anlegt. Standard:
+                        <code>openmedia</code>.
+                    </div>
+                </div>
+
+                <div class="checkboxContainer">
+                    <label>
+                        <input is="emby-checkbox" type="checkbox" id="OpenMediaAutoCreateLibrary" />
+                        <span>Library beim Start automatisch anlegen</span>
+                    </label>
+                    <div class="fieldDescription">
+                        Wenn aktiv, prueft das Plugin beim Jellyfin-Start ob bereits eine Library mit
+                        dem oben gesetzten Namen existiert. Falls nicht, wird sie als
+                        <em>Movies</em>-Library mit dem STRM-Verzeichnis als Quelle angelegt.
+                        Existierende Libraries werden nie veraendert.
                     </div>
                 </div>
 
@@ -88,6 +115,8 @@
                     view.querySelector('#OpenMediaApiUrl').value = config.ApiUrl || '';
                     view.querySelector('#OpenMediaApiToken').value = config.ApiToken || '';
                     view.querySelector('#OpenMediaStrmDirectory').value = config.StrmDirectory || '';
+                    view.querySelector('#OpenMediaLibraryName').value = config.LibraryName || 'openmedia';
+                    view.querySelector('#OpenMediaAutoCreateLibrary').checked = config.AutoCreateLibrary !== false;
                     Dashboard.hideLoadingMsg();
                 });
             }
@@ -98,6 +127,8 @@
                     config.ApiUrl = view.querySelector('#OpenMediaApiUrl').value.trim();
                     config.ApiToken = view.querySelector('#OpenMediaApiToken').value.trim();
                     config.StrmDirectory = view.querySelector('#OpenMediaStrmDirectory').value.trim();
+                    config.LibraryName = view.querySelector('#OpenMediaLibraryName').value.trim() || 'openmedia';
+                    config.AutoCreateLibrary = view.querySelector('#OpenMediaAutoCreateLibrary').checked;
                     ApiClient.updatePluginConfiguration(OpenMediaPluginId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);
                     });
