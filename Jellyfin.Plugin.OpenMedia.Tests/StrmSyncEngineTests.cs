@@ -39,13 +39,25 @@ public sealed class StrmSyncEngineTests : IDisposable
         }
     }
 
-    private static LibraryItem Item(string hash, long? tmdbId = 1234L) =>
-        new(hash, tmdbId, "Test", 2024, "1000", 120, "1080p");
+    private static LibraryItem Item(
+        string hash,
+        long? tmdbId = 1234L,
+        string? title = "Test Movie",
+        int? year = 2024) =>
+        new(hash, tmdbId, title, year, "1000", 120, "1080p");
+
+    private static string FolderFor(string title, int? year, long tmdbId) =>
+        StrmSyncEngine.BuildFolderName(title, year, tmdbId);
 
     [Fact]
     public void WritesStrmFilesForThreeItems()
     {
-        var items = new[] { Item(HashA), Item(HashB), Item(HashC) };
+        var items = new[]
+        {
+            Item(HashA, tmdbId: 1001L, title: "Alpha", year: 2020),
+            Item(HashB, tmdbId: 1002L, title: "Beta",  year: 2021),
+            Item(HashC, tmdbId: 1003L, title: "Gamma", year: 2022),
+        };
 
         var result = StrmSyncEngine.Sync(_tempDir, items, BaseUrl, Token);
 
@@ -54,24 +66,101 @@ public sealed class StrmSyncEngineTests : IDisposable
         Assert.Equal(0, result.Unchanged);
         Assert.Equal(0, result.Removed);
 
-        foreach (var hash in new[] { HashA, HashB, HashC })
+        foreach (var item in items)
         {
-            var path = Path.Combine(_tempDir, $"{hash}.strm");
-            Assert.True(File.Exists(path));
+            var folder = FolderFor(item.Title!, item.Year, item.TmdbId!.Value);
+            var path = Path.Combine(_tempDir, folder, $"{item.Hash}.strm");
+            Assert.True(File.Exists(path), $"Erwartet {path}");
             var content = File.ReadAllText(path);
-            Assert.Equal($"{BaseUrl}/jellyfin/stream/{hash}?token={Token}", content);
+            Assert.Equal($"{BaseUrl}/jellyfin/stream/{item.Hash}?token={Token}", content);
         }
     }
 
     [Fact]
-    public void RemovesStrmForRemovedHash()
+    public void FolderNameContainsTmdbIdTag()
     {
-        // Erst {A,B,C} schreiben
-        StrmSyncEngine.Sync(_tempDir, new[] { Item(HashA), Item(HashB), Item(HashC) }, BaseUrl, Token);
+        var items = new[] { Item(HashA, tmdbId: 27205L, title: "Inception", year: 2010) };
 
-        var pathA = Path.Combine(_tempDir, $"{HashA}.strm");
-        var pathB = Path.Combine(_tempDir, $"{HashB}.strm");
-        var pathC = Path.Combine(_tempDir, $"{HashC}.strm");
+        StrmSyncEngine.Sync(_tempDir, items, BaseUrl, Token);
+
+        var expected = Path.Combine(_tempDir, "Inception (2010) [tmdbid-27205]", $"{HashA}.strm");
+        Assert.True(File.Exists(expected));
+    }
+
+    [Fact]
+    public void OmitsYearWhenNull()
+    {
+        var items = new[] { Item(HashA, tmdbId: 42L, title: "Unknown Year", year: null) };
+
+        StrmSyncEngine.Sync(_tempDir, items, BaseUrl, Token);
+
+        var expected = Path.Combine(_tempDir, "Unknown Year [tmdbid-42]", $"{HashA}.strm");
+        Assert.True(File.Exists(expected));
+        Assert.False(Directory.Exists(Path.Combine(_tempDir, "Unknown Year () [tmdbid-42]")));
+    }
+
+    [Fact]
+    public void SanitizesForbiddenCharsInTitle()
+    {
+        // Sonderzeichen werden zu Space, mehrfache Spaces kollabieren.
+        var items = new[]
+        {
+            Item(HashA, tmdbId: 7L, title: "Spider-Man: Across the Spider-Verse", year: 2023),
+            Item(HashB, tmdbId: 8L, title: "Wall/E?\"<>|", year: 2008),
+            Item(HashC, tmdbId: 9L, title: "  Lots   of    spaces  ", year: 2024),
+        };
+
+        StrmSyncEngine.Sync(_tempDir, items, BaseUrl, Token);
+
+        Assert.True(File.Exists(Path.Combine(
+            _tempDir,
+            "Spider-Man Across the Spider-Verse (2023) [tmdbid-7]",
+            $"{HashA}.strm")));
+        Assert.True(File.Exists(Path.Combine(
+            _tempDir,
+            "Wall E (2008) [tmdbid-8]",
+            $"{HashB}.strm")));
+        Assert.True(File.Exists(Path.Combine(
+            _tempDir,
+            "Lots of spaces (2024) [tmdbid-9]",
+            $"{HashC}.strm")));
+    }
+
+    [Fact]
+    public void FallsBackToUntitledWhenTitleEmpty()
+    {
+        var items = new[] { Item(HashA, tmdbId: 99L, title: "", year: 2024) };
+
+        StrmSyncEngine.Sync(_tempDir, items, BaseUrl, Token);
+
+        Assert.True(File.Exists(Path.Combine(
+            _tempDir,
+            "Untitled (2024) [tmdbid-99]",
+            $"{HashA}.strm")));
+    }
+
+    [Fact]
+    public void RemovesStrmAndEmptyFolderForRemovedHash()
+    {
+        // Erst alle drei legen
+        StrmSyncEngine.Sync(
+            _tempDir,
+            new[]
+            {
+                Item(HashA, tmdbId: 1L, title: "Alpha", year: 2020),
+                Item(HashB, tmdbId: 2L, title: "Beta",  year: 2021),
+                Item(HashC, tmdbId: 3L, title: "Gamma", year: 2022),
+            },
+            BaseUrl,
+            Token);
+
+        var folderA = Path.Combine(_tempDir, FolderFor("Alpha", 2020, 1L));
+        var folderB = Path.Combine(_tempDir, FolderFor("Beta",  2021, 2L));
+        var folderC = Path.Combine(_tempDir, FolderFor("Gamma", 2022, 3L));
+        var pathA = Path.Combine(folderA, $"{HashA}.strm");
+        var pathB = Path.Combine(folderB, $"{HashB}.strm");
+        var pathC = Path.Combine(folderC, $"{HashC}.strm");
+
         var mtimeA = File.GetLastWriteTimeUtc(pathA);
         var mtimeC = File.GetLastWriteTimeUtc(pathC);
 
@@ -79,7 +168,15 @@ public sealed class StrmSyncEngineTests : IDisposable
         System.Threading.Thread.Sleep(1100);
 
         // Zweiter Sync ohne B
-        var result = StrmSyncEngine.Sync(_tempDir, new[] { Item(HashA), Item(HashC) }, BaseUrl, Token);
+        var result = StrmSyncEngine.Sync(
+            _tempDir,
+            new[]
+            {
+                Item(HashA, tmdbId: 1L, title: "Alpha", year: 2020),
+                Item(HashC, tmdbId: 3L, title: "Gamma", year: 2022),
+            },
+            BaseUrl,
+            Token);
 
         Assert.Equal(0, result.Added);
         Assert.Equal(0, result.Updated);
@@ -88,51 +185,123 @@ public sealed class StrmSyncEngineTests : IDisposable
 
         Assert.True(File.Exists(pathA));
         Assert.False(File.Exists(pathB));
+        Assert.False(Directory.Exists(folderB), "Leerer Ordner muss entfernt werden.");
         Assert.True(File.Exists(pathC));
 
-        // A und C duerfen NICHT angefasst worden sein
+        // A und C duerfen NICHT angefasst worden sein.
         Assert.Equal(mtimeA, File.GetLastWriteTimeUtc(pathA));
         Assert.Equal(mtimeC, File.GetLastWriteTimeUtc(pathC));
     }
 
     [Fact]
-    public void LeavesForeignFilesUntouched()
+    public void RenameMovesFileToNewFolderAndRemovesOld()
+    {
+        // Erst mit altem Titel
+        StrmSyncEngine.Sync(
+            _tempDir,
+            new[] { Item(HashA, tmdbId: 1L, title: "Old Name", year: 2020) },
+            BaseUrl,
+            Token);
+
+        var oldFolder = Path.Combine(_tempDir, FolderFor("Old Name", 2020, 1L));
+        var oldPath = Path.Combine(oldFolder, $"{HashA}.strm");
+        Assert.True(File.Exists(oldPath));
+
+        // Jetzt mit korrigiertem Titel — Hash bleibt
+        var result = StrmSyncEngine.Sync(
+            _tempDir,
+            new[] { Item(HashA, tmdbId: 1L, title: "Correct Name", year: 2020) },
+            BaseUrl,
+            Token);
+
+        Assert.Equal(1, result.Added);
+        Assert.Equal(1, result.Removed);
+        Assert.Equal(0, result.Unchanged);
+
+        Assert.False(Directory.Exists(oldFolder), "Alter (jetzt leerer) Ordner muss weg.");
+        var newPath = Path.Combine(_tempDir, FolderFor("Correct Name", 2020, 1L), $"{HashA}.strm");
+        Assert.True(File.Exists(newPath));
+    }
+
+    [Fact]
+    public void MigratesLegacyFlatStrmAtRoot()
+    {
+        // Simuliere vorigen Plugin-Stand: flat {hash}.strm im Root.
+        var legacyPath = Path.Combine(_tempDir, $"{HashA}.strm");
+        File.WriteAllText(legacyPath, $"{BaseUrl}/jellyfin/stream/{HashA}?token=old");
+
+        var result = StrmSyncEngine.Sync(
+            _tempDir,
+            new[] { Item(HashA, tmdbId: 1L, title: "Alpha", year: 2020) },
+            BaseUrl,
+            Token);
+
+        Assert.Equal(1, result.Added);
+        Assert.Equal(1, result.Removed);
+        Assert.False(File.Exists(legacyPath));
+
+        var newPath = Path.Combine(_tempDir, FolderFor("Alpha", 2020, 1L), $"{HashA}.strm");
+        Assert.True(File.Exists(newPath));
+    }
+
+    [Fact]
+    public void LeavesForeignFilesAndFoldersUntouched()
     {
         // Vorab eine Fremd-Datei
-        var foreignPath = Path.Combine(_tempDir, "notes.txt");
-        File.WriteAllText(foreignPath, "wichtige Notizen");
-        var foreignMtime = File.GetLastWriteTimeUtc(foreignPath);
+        var foreignFile = Path.Combine(_tempDir, "notes.txt");
+        File.WriteAllText(foreignFile, "wichtige Notizen");
+        var foreignMtime = File.GetLastWriteTimeUtc(foreignFile);
 
         // .strm mit non-hash Name (sollte auch ueberleben)
         var weirdStrm = Path.Combine(_tempDir, "backup-2024.strm");
         File.WriteAllText(weirdStrm, "old data");
         var weirdMtime = File.GetLastWriteTimeUtc(weirdStrm);
 
+        // Fremder Ordner ohne tmdbid-Suffix
+        var foreignDir = Path.Combine(_tempDir, "My other movies");
+        Directory.CreateDirectory(foreignDir);
+        var foreignDirFile = Path.Combine(foreignDir, "anything.mp4");
+        File.WriteAllText(foreignDirFile, "data");
+        var foreignDirMtime = File.GetLastWriteTimeUtc(foreignDirFile);
+
         System.Threading.Thread.Sleep(1100);
 
-        var result = StrmSyncEngine.Sync(_tempDir, new[] { Item(HashA) }, BaseUrl, Token);
+        var result = StrmSyncEngine.Sync(
+            _tempDir,
+            new[] { Item(HashA, tmdbId: 1L, title: "Alpha", year: 2020) },
+            BaseUrl,
+            Token);
 
         Assert.Equal(1, result.Added);
         Assert.Equal(0, result.Removed);
-        Assert.Equal(2, result.Foreign);
+        // 2x flat .strm-Foreign (notes.txt, backup-2024.strm) + 1 Foreign-Folder
+        Assert.Equal(3, result.Foreign);
 
-        Assert.True(File.Exists(foreignPath));
-        Assert.Equal("wichtige Notizen", File.ReadAllText(foreignPath));
-        Assert.Equal(foreignMtime, File.GetLastWriteTimeUtc(foreignPath));
+        Assert.True(File.Exists(foreignFile));
+        Assert.Equal("wichtige Notizen", File.ReadAllText(foreignFile));
+        Assert.Equal(foreignMtime, File.GetLastWriteTimeUtc(foreignFile));
 
         Assert.True(File.Exists(weirdStrm));
         Assert.Equal("old data", File.ReadAllText(weirdStrm));
         Assert.Equal(weirdMtime, File.GetLastWriteTimeUtc(weirdStrm));
+
+        Assert.True(Directory.Exists(foreignDir));
+        Assert.True(File.Exists(foreignDirFile));
+        Assert.Equal(foreignDirMtime, File.GetLastWriteTimeUtc(foreignDirFile));
     }
 
     [Fact]
     public void IsIdempotent()
     {
-        var items = new[] { Item(HashA), Item(HashB) };
+        var items = new[]
+        {
+            Item(HashA, tmdbId: 1L, title: "Alpha", year: 2020),
+            Item(HashB, tmdbId: 2L, title: "Beta",  year: 2021),
+        };
         StrmSyncEngine.Sync(_tempDir, items, BaseUrl, Token);
 
-        var pathA = Path.Combine(_tempDir, $"{HashA}.strm");
-        var pathB = Path.Combine(_tempDir, $"{HashB}.strm");
+        var pathA = Path.Combine(_tempDir, FolderFor("Alpha", 2020, 1L), $"{HashA}.strm");
+        var pathB = Path.Combine(_tempDir, FolderFor("Beta",  2021, 2L), $"{HashB}.strm");
         var mtimeA = File.GetLastWriteTimeUtc(pathA);
         var mtimeB = File.GetLastWriteTimeUtc(pathB);
 
@@ -150,19 +319,27 @@ public sealed class StrmSyncEngineTests : IDisposable
     }
 
     [Fact]
-    public void RewritesWhenContentChanges()
+    public void RewritesOnlyWhenContentChanges()
     {
         // Erst mit Token A schreiben
-        StrmSyncEngine.Sync(_tempDir, new[] { Item(HashA) }, BaseUrl, "old_token");
+        StrmSyncEngine.Sync(
+            _tempDir,
+            new[] { Item(HashA, tmdbId: 1L, title: "Alpha", year: 2020) },
+            BaseUrl,
+            "old_token");
 
         // Jetzt mit Token B
-        var result = StrmSyncEngine.Sync(_tempDir, new[] { Item(HashA) }, BaseUrl, "new_token");
+        var result = StrmSyncEngine.Sync(
+            _tempDir,
+            new[] { Item(HashA, tmdbId: 1L, title: "Alpha", year: 2020) },
+            BaseUrl,
+            "new_token");
 
         Assert.Equal(0, result.Added);
         Assert.Equal(1, result.Updated);
         Assert.Equal(0, result.Unchanged);
 
-        var path = Path.Combine(_tempDir, $"{HashA}.strm");
+        var path = Path.Combine(_tempDir, FolderFor("Alpha", 2020, 1L), $"{HashA}.strm");
         Assert.Contains("token=new_token", File.ReadAllText(path));
     }
 
@@ -172,15 +349,20 @@ public sealed class StrmSyncEngineTests : IDisposable
         var items = new[]
         {
             Item(HashA, tmdbId: null),
-            Item(HashB, tmdbId: 42L),
+            Item(HashB, tmdbId: 42L, title: "Has TMDB", year: 2024),
         };
 
         var result = StrmSyncEngine.Sync(_tempDir, items, BaseUrl, Token);
 
         Assert.Equal(1, result.Added);
         Assert.Equal(1, result.Skipped);
-        Assert.False(File.Exists(Path.Combine(_tempDir, $"{HashA}.strm")));
-        Assert.True(File.Exists(Path.Combine(_tempDir, $"{HashB}.strm")));
+
+        // Genau ein erzeugter Ordner: der fuer HashB / TMDB 42
+        var dirs = Directory.EnumerateDirectories(_tempDir).Select(Path.GetFileName).ToArray();
+        Assert.Single(dirs);
+        Assert.Equal(FolderFor("Has TMDB", 2024, 42L), dirs[0]);
+        Assert.True(File.Exists(Path.Combine(
+            _tempDir, FolderFor("Has TMDB", 2024, 42L), $"{HashB}.strm")));
     }
 
     [Fact]
@@ -192,7 +374,7 @@ public sealed class StrmSyncEngineTests : IDisposable
             new LibraryItem("../etc/passwd", 1L, "evil", 2024, null, null, null),
             new LibraryItem("not_64_hex", 1L, "evil2", 2024, null, null, null),
             new LibraryItem("UPPERCASE" + new string('a', 55), 1L, "evil3", 2024, null, null, null),
-            Item(HashA),
+            Item(HashA, tmdbId: 1L, title: "Alpha", year: 2020),
         };
 
         var result = StrmSyncEngine.Sync(_tempDir, items, BaseUrl, Token);
@@ -200,10 +382,10 @@ public sealed class StrmSyncEngineTests : IDisposable
         Assert.Equal(1, result.Added);
         Assert.Equal(3, result.Rejected);
 
-        // Verzeichnis darf nur HashA.strm enthalten
-        var entries = Directory.EnumerateFileSystemEntries(_tempDir).ToArray();
-        Assert.Single(entries);
-        Assert.True(File.Exists(Path.Combine(_tempDir, $"{HashA}.strm")));
+        // Nur der erlaubte Ordner darf da sein.
+        var dirs = Directory.EnumerateDirectories(_tempDir).Select(Path.GetFileName).ToArray();
+        Assert.Single(dirs);
+        Assert.Equal(FolderFor("Alpha", 2020, 1L), dirs[0]);
     }
 
     [Fact]
@@ -222,10 +404,30 @@ public sealed class StrmSyncEngineTests : IDisposable
         var nested = Path.Combine(_tempDir, "deep", "nested", "strm");
         Assert.False(Directory.Exists(nested));
 
-        var result = StrmSyncEngine.Sync(nested, new[] { Item(HashA) }, BaseUrl, Token);
+        var result = StrmSyncEngine.Sync(
+            nested,
+            new[] { Item(HashA, tmdbId: 1L, title: "Alpha", year: 2020) },
+            BaseUrl,
+            Token);
 
         Assert.Equal(1, result.Added);
         Assert.True(Directory.Exists(nested));
-        Assert.True(File.Exists(Path.Combine(nested, $"{HashA}.strm")));
+        Assert.True(File.Exists(Path.Combine(
+            nested, FolderFor("Alpha", 2020, 1L), $"{HashA}.strm")));
+    }
+
+    [Fact]
+    public void SanitizeTitleHelperBehavior()
+    {
+        Assert.Equal(string.Empty, StrmSyncEngine.SanitizeTitle(null));
+        Assert.Equal(string.Empty, StrmSyncEngine.SanitizeTitle("   "));
+        Assert.Equal("Hello World", StrmSyncEngine.SanitizeTitle("Hello   World"));
+        Assert.Equal("Hello-World!", StrmSyncEngine.SanitizeTitle("Hello-World!"));
+        Assert.Equal("It's a (great) movie", StrmSyncEngine.SanitizeTitle("It's a (great) movie"));
+        Assert.Equal("a b", StrmSyncEngine.SanitizeTitle("a/b"));
+        Assert.Equal("a b", StrmSyncEngine.SanitizeTitle("a\\b"));
+        Assert.Equal("a b", StrmSyncEngine.SanitizeTitle("a:b"));
+        // Sonderzeichen am Rand wegtrimmen
+        Assert.Equal("trim", StrmSyncEngine.SanitizeTitle("???trim???"));
     }
 }
