@@ -1,0 +1,16 @@
+{
+  "category": "General",
+  "changelog": "1.0.0.0 - Initial release. Streamt openmedia-UserLibrary direkt nach Jellyfin via STRM-Dateien und Direct-Play von S3. Inklusive 15s ETag-Polling fuer Library-Updates und automatischer Library-Erstellung.",
+  "description": "Streamt deine openmedia-UserLibrary direkt nach Jellyfin (Direct-Play von S3).",
+  "guid": "8cfc3c6a-c39f-467f-8ebe-9f3218724aa1",
+  "name": "openmedia",
+  "overview": "Bindet deine persoenliche openmedia-UserLibrary als virtuelle Jellyfin-Library ein. Filme erscheinen automatisch in Jellyfin und werden direkt aus S3 gestreamt - kein Proxy, kein Re-Encode. Inklusive Apple TV / Swiftfin Support.",
+  "owner": "ichbinder",
+  "targetAbi": "10.11.5.0",
+  "timestamp": "2026-05-14T00:00:00.0000000Z",
+  "version": "1.0.0.0",
+  "status": "Active",
+  "autoUpdate": false,
+  "imageUrl": "https://raw.githubusercontent.com/ichbinder/openmedia-jellyfin-plugin/main/Jellyfin.Plugin.OpenMedia/build/thumb.png",
+  "assemblies": []
+}
