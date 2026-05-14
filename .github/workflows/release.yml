@@ -89,11 +89,11 @@ jobs:
           STAGE_DIR: ${{ steps.stage.outputs.stage_dir }}
         run: |
           set -euo pipefail
-          CHANGELOG="$INPUT_CHANGELOG"
+          export CHANGELOG="$INPUT_CHANGELOG"
           if [ -z "$CHANGELOG" ]; then
-            CHANGELOG="$VERSION - Release"
+            export CHANGELOG="$VERSION - Release"
           fi
-          TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%S.0000000Z)"
+          export TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%S.0000000Z)"
           python3 - <<'PY'
           import json, os
           src = "publish/meta.json"
