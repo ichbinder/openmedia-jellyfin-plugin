@@ -23,6 +23,13 @@ public sealed record LibraryItem(
     string? Resolution);
 
 /// <summary>
+/// Antwort von GET /jellyfin/library/version — billiger Version-Stempel der gesamten
+/// User-Library. Aendert sich der ETag, hat sich die Library garantiert geaendert
+/// (add/remove/s3-presence-flip). Bleibt er gleich, gibt es keinen Sync-Grund.
+/// </summary>
+public sealed record LibraryVersion(string Etag, int Count);
+
+/// <summary>
 /// Minimaler HTTP-Client gegen die openmedia-API.
 /// Bearer-Auth mit dem ApiToken aus PluginConfiguration.
 /// </summary>
@@ -58,6 +65,27 @@ public class OpenMediaApiClient
 
         var payload = await res.Content.ReadFromJsonAsync<LibraryResponse>(JsonOptions, ct).ConfigureAwait(false);
         return payload?.Items ?? Array.Empty<LibraryItem>();
+    }
+
+    /// <summary>
+    /// Holt den Version-Stempel der User-Library. Billig (Hash + Count, keine Item-Serialisierung).
+    /// Soll vom Polling-Service alle paar Sekunden abgefragt werden.
+    /// </summary>
+    public async Task<LibraryVersion> GetLibraryVersionAsync(CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"{_baseUrl}/jellyfin/library/version");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);
+
+        using var res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        res.EnsureSuccessStatusCode();
+
+        var payload = await res.Content.ReadFromJsonAsync<LibraryVersion>(JsonOptions, ct).ConfigureAwait(false);
+        if (payload is null || string.IsNullOrEmpty(payload.Etag))
+        {
+            throw new InvalidOperationException("Library-Version Response ohne etag.");
+        }
+
+        return payload;
     }
 
     private sealed record LibraryResponse(IReadOnlyList<LibraryItem> Items);
