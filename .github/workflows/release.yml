@@ -1,0 +1,174 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version (z.B. 1.1.0.0) — wird auch als Tag v<version> erzeugt"
+        required: true
+        type: string
+      changelog:
+        description: "Changelog-Text fuer meta.json"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Resolve version
+        id: ver
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            REF="${GITHUB_REF##refs/tags/}"
+            VERSION="${REF#v}"
+          fi
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Version '$VERSION' entspricht nicht dem Schema X.Y.Z.W"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VERSION"
+
+      - name: Restore dependencies
+        run: dotnet restore Jellyfin.Plugin.OpenMedia.sln
+
+      - name: Build (Release)
+        run: |
+          dotnet build Jellyfin.Plugin.OpenMedia/Jellyfin.Plugin.OpenMedia.csproj \
+            -c Release \
+            --no-restore \
+            /p:Version=${{ steps.ver.outputs.version }} \
+            /p:AssemblyVersion=${{ steps.ver.outputs.version }} \
+            /p:FileVersion=${{ steps.ver.outputs.version }}
+
+      - name: Run tests
+        run: dotnet test Jellyfin.Plugin.OpenMedia.Tests/Jellyfin.Plugin.OpenMedia.Tests.csproj -c Release --no-build --verbosity normal
+
+      - name: Stage plugin artifacts
+        id: stage
+        run: |
+          set -euo pipefail
+          STAGE_DIR="$(mktemp -d)"
+          BUILD_DIR="Jellyfin.Plugin.OpenMedia/bin/Release/net9.0"
+          cp "$BUILD_DIR/Jellyfin.Plugin.OpenMedia.dll" "$STAGE_DIR/"
+          if [ -f "$BUILD_DIR/Jellyfin.Plugin.OpenMedia.pdb" ]; then
+            cp "$BUILD_DIR/Jellyfin.Plugin.OpenMedia.pdb" "$STAGE_DIR/"
+          fi
+          if [ -f "publish/thumb.png" ]; then
+            cp "publish/thumb.png" "$STAGE_DIR/"
+          fi
+          echo "stage_dir=$STAGE_DIR" >> "$GITHUB_OUTPUT"
+          ls -la "$STAGE_DIR"
+
+      - name: Generate meta.json
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          INPUT_CHANGELOG: ${{ inputs.changelog }}
+          STAGE_DIR: ${{ steps.stage.outputs.stage_dir }}
+        run: |
+          set -euo pipefail
+          CHANGELOG="$INPUT_CHANGELOG"
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="$VERSION - Release"
+          fi
+          TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%S.0000000Z)"
+          python3 - <<'PY'
+          import json, os
+          src = "publish/meta.json"
+          dst = os.path.join(os.environ["STAGE_DIR"], "meta.json")
+          with open(src) as f:
+              meta = json.load(f)
+          meta["version"] = os.environ["VERSION"]
+          meta["changelog"] = os.environ["CHANGELOG"]
+          meta["timestamp"] = os.environ["TIMESTAMP"]
+          with open(dst, "w") as f:
+              json.dump(meta, f, indent=2)
+              f.write("\n")
+          print(open(dst).read())
+          PY
+
+      - name: Package ZIP
+        id: pkg
+        env:
+          STAGE_DIR: ${{ steps.stage.outputs.stage_dir }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          ZIP_NAME="openmedia-${VERSION}.zip"
+          ZIP_PATH="$GITHUB_WORKSPACE/$ZIP_NAME"
+          (cd "$STAGE_DIR" && zip -r "$ZIP_PATH" .)
+          MD5="$(md5sum "$ZIP_PATH" | cut -d' ' -f1)"
+          SIZE="$(stat -c%s "$ZIP_PATH")"
+          echo "zip_path=$ZIP_PATH" >> "$GITHUB_OUTPUT"
+          echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
+          echo "md5=$MD5" >> "$GITHUB_OUTPUT"
+          echo "size=$SIZE" >> "$GITHUB_OUTPUT"
+          echo "ZIP: $ZIP_PATH"
+          echo "MD5: $MD5"
+          echo "Size: $SIZE bytes"
+
+      - name: Create tag (workflow_dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG existiert bereits — skip"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "$TAG"
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          ZIP_PATH: ${{ steps.pkg.outputs.zip_path }}
+          ZIP_NAME: ${{ steps.pkg.outputs.zip_name }}
+          MD5: ${{ steps.pkg.outputs.md5 }}
+          SIZE: ${{ steps.pkg.outputs.size }}
+        run: |
+          set -euo pipefail
+          NOTES_FILE="$(mktemp)"
+          cat > "$NOTES_FILE" <<EOF
+          # openmedia Jellyfin Plugin $VERSION
+
+          **ZIP:** \`$ZIP_NAME\` ($SIZE bytes)
+          **MD5:** \`$MD5\`
+
+          Wird vom openmedia-api Manifest-Endpoint geliefert (mit eingebetteter \`bootstrap.json\` pro User).
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP_PATH" --clobber
+          else
+            gh release create "$TAG" "$ZIP_PATH" \
+              --title "$VERSION" \
+              --notes-file "$NOTES_FILE"
+          fi
