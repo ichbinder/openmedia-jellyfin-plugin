@@ -1,12 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Jellyfin.Plugin.OpenMedia.Api;
 using MediaBrowser.Common.Configuration;
-using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
@@ -14,26 +11,19 @@ namespace Jellyfin.Plugin.OpenMedia.Tasks;
 
 /// <summary>
 /// Scheduled-Task der die openmedia-API-Library mit dem konfigurierten STRM-Verzeichnis
-/// synchronisiert. Schreibt {hash}.strm-Files, loescht eigene STRMs deren Hash nicht
-/// mehr in der API steht, triggert anschliessend einen Jellyfin-Library-Scan.
+/// synchronisiert. Faellt seit dem Polling-Service auf 15 Min Intervall zurueck und dient
+/// als Safety-Net fuer Faelle in denen der Polling-Service nicht laeuft (Plugin-Update,
+/// Server-Neustart in den 15s Polling-Pause hinein etc.).
 /// </summary>
 public class LibrarySyncTask : IScheduledTask
 {
     private readonly ILogger<LibrarySyncTask> _logger;
-    private readonly IHttpClientFactory _httpClientFactory;
-    private readonly IApplicationPaths _applicationPaths;
-    private readonly ILibraryManager _libraryManager;
+    private readonly ILibrarySyncRunner _runner;
 
-    public LibrarySyncTask(
-        ILogger<LibrarySyncTask> logger,
-        IHttpClientFactory httpClientFactory,
-        IApplicationPaths applicationPaths,
-        ILibraryManager libraryManager)
+    public LibrarySyncTask(ILogger<LibrarySyncTask> logger, ILibrarySyncRunner runner)
     {
         _logger = logger;
-        _httpClientFactory = httpClientFactory;
-        _applicationPaths = applicationPaths;
-        _libraryManager = libraryManager;
+        _runner = runner;
     }
 
     public string Name => "openmedia: STRM-Library synchronisieren";
@@ -57,69 +47,8 @@ public class LibrarySyncTask : IScheduledTask
 
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        var config = Plugin.Instance?.Configuration;
-        if (config is null)
-        {
-            _logger.LogWarning("Plugin-Configuration nicht verfuegbar — Sync uebersprungen.");
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(config.ApiUrl) || string.IsNullOrWhiteSpace(config.ApiToken))
-        {
-            _logger.LogWarning("ApiUrl oder ApiToken nicht gesetzt — Sync uebersprungen.");
-            return;
-        }
-
-        var strmDir = GetEffectiveStrmDirectory(config.StrmDirectory, _applicationPaths);
-
         progress.Report(5);
-
-        var http = _httpClientFactory.CreateClient(nameof(OpenMediaApiClient));
-        var client = new OpenMediaApiClient(http, config.ApiUrl, config.ApiToken);
-
-        IReadOnlyList<LibraryItem> items;
-        try
-        {
-            items = await client.GetLibraryAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Library-Fetch fehlgeschlagen — Sync abgebrochen.");
-            return;
-        }
-
-        progress.Report(40);
-
-        StrmSyncResult result;
-        try
-        {
-            result = StrmSyncEngine.Sync(strmDir, items, config.ApiUrl, config.ApiToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "STRM-Sync fehlgeschlagen.");
-            return;
-        }
-
-        _logger.LogInformation(
-            "openmedia STRM-Sync abgeschlossen: dir={Dir} added={Added} updated={Updated} unchanged={Unchanged} removed={Removed} skipped={Skipped} foreign={Foreign} rejected={Rejected}",
-            strmDir,
-            result.Added,
-            result.Updated,
-            result.Unchanged,
-            result.Removed,
-            result.Skipped,
-            result.Foreign,
-            result.Rejected);
-
-        progress.Report(80);
-
-        if (result.Added > 0 || result.Updated > 0 || result.Removed > 0)
-        {
-            _libraryManager.QueueLibraryScan();
-            _logger.LogInformation("Jellyfin Library-Scan eingereiht (STRM-Aenderungen erkannt).");
-        }
-
+        await _runner.RunOnceAsync(cancellationToken).ConfigureAwait(false);
         progress.Report(100);
     }
 
