@@ -56,7 +56,7 @@ jobs:
 
       - name: Build (Release)
         run: |
-          dotnet build Jellyfin.Plugin.OpenMedia/Jellyfin.Plugin.OpenMedia.csproj \
+          dotnet build Jellyfin.Plugin.OpenMedia.sln \
             -c Release \
             --no-restore \
             /p:Version=${{ steps.ver.outputs.version }} \
