@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using Jellyfin.Plugin.OpenMedia.Bootstrap;
 using Jellyfin.Plugin.OpenMedia.Configuration;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
@@ -30,19 +29,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         // Personalisierte ZIPs der openmedia-API enthalten eine bootstrap.json
         // mit {apiUrl, apiToken}. Beim ersten Start uebernehmen wir die Werte
-        // in die Plugin-Konfiguration und loeschen die Datei.
+        // in die Plugin-Konfiguration (nur wenn noch nicht gesetzt) und loeschen
+        // die Datei.
         var pluginDir = Path.GetDirectoryName(GetType().Assembly.Location);
-        if (!string.IsNullOrEmpty(pluginDir))
+        if (BootstrapReader.TryApply(applicationPaths, Configuration, pluginDir, logger))
         {
-            BootstrapLoader.TryApply(
-                pluginDir,
-                (apiUrl, apiToken) =>
-                {
-                    Configuration.ApiUrl = apiUrl;
-                    Configuration.ApiToken = apiToken;
-                    SaveConfiguration();
-                },
-                logger);
+            SaveConfiguration();
         }
     }
 

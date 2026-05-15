@@ -5,7 +5,7 @@ Filme werden direkt aus S3 gestreamt (Direct-Play). Primaerer Test-Client: Apple
 
 - Plugin-GUID: `8cfc3c6a-c39f-467f-8ebe-9f3218724aa1`
 - Target: Jellyfin **10.11+** (`net9.0`, `Jellyfin.Controller` 10.11.x)
-- Status: **S01** — Skelett + Settings-Tab
+- Status: **M041/S03** — Bootstrap-Reader (1.1.0)
 
 ## Lokaler Dev-Loop (macOS)
 
@@ -24,6 +24,34 @@ cp ./publish/Jellyfin.Plugin.OpenMedia.dll "$PLUGIN_DIR/"
 ```
 
 Nach dem Restart: **Admin-Dashboard -> Plugins -> openmedia** -> Settings-Tab.
+
+## Auto-Konfiguration via `bootstrap.json`
+
+Beim ersten Start sucht das Plugin nach einer Datei `bootstrap.json` —
+zuerst im Plugin-Konfigurationsverzeichnis
+(`<Jellyfin-Config>/plugins/configurations/`), danach im DLL-Verzeichnis
+des Plugins. Existiert die Datei, werden `ApiUrl` und `ApiToken`
+automatisch in die Plugin-Configuration uebernommen, sodass der User die
+Settings nicht mehr manuell ausfuellen muss.
+
+Format:
+
+```json
+{
+  "apiUrl": "https://api.mediatoken.de",
+  "apiToken": "om_xxxxxxxxxxxxxxxx"
+}
+```
+
+Verhalten:
+
+- **Idempotent:** Nur leere Config-Felder werden gefuellt. Bereits gesetzte
+  User-Werte bleiben unangetastet.
+- **Einmal-Konsum:** `bootstrap.json` wird nach dem Lesen geloescht — auch
+  bei Parse-Fehlern. Die Datei wird also genau einmal verarbeitet.
+- **Logging:** Plugin-Log enthaelt einen Eintrag mit Token-Prefix (ohne
+  vollstaendigen Token), wenn die Datei gelesen wird, sowie einen
+  Skip-Eintrag, wenn die Config bereits gesetzt ist.
 
 ## Naechste Slices
 
