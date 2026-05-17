@@ -90,6 +90,22 @@ public static class BootstrapReader
                     "openmedia bootstrap.json: ApiToken already configured — skipping");
             }
 
+            // MediaSigningSecret: idempotent, nur setzen wenn config noch leer
+            if (!string.IsNullOrWhiteSpace(data.MediaSigningSecret)
+                && string.IsNullOrWhiteSpace(config.MediaSigningSecret))
+            {
+                config.MediaSigningSecret = data.MediaSigningSecret;
+                applied = true;
+                logger?.LogInformation(
+                    "openmedia bootstrap.json: MediaSigningSecret set (length={Len})",
+                    data.MediaSigningSecret.Length);
+            }
+            else if (!string.IsNullOrWhiteSpace(data.MediaSigningSecret))
+            {
+                logger?.LogInformation(
+                    "openmedia bootstrap.json: MediaSigningSecret already configured — skipping");
+            }
+
             if (applied)
             {
                 // Token-Prefix loggen (ohne den ganzen Token)
@@ -178,5 +194,8 @@ public static class BootstrapReader
 
         [JsonPropertyName("apiToken")]
         public string? ApiToken { get; set; }
+
+        [JsonPropertyName("media_signing_secret")]
+        public string? MediaSigningSecret { get; set; }
     }
 }

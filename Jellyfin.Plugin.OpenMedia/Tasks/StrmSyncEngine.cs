@@ -4,7 +4,10 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using Jellyfin.Plugin.OpenMedia.Api;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.OpenMedia.Tasks;
 
@@ -124,6 +127,123 @@ public static class StrmSyncEngine
             }
 
             expectedFolderByHash[item.Hash] = folderName;
+
+            Directory.CreateDirectory(folderFull);
+
+            var url = BuildStreamUrl(baseUrl, item.Hash, token);
+
+            if (File.Exists(targetFull))
+            {
+                var existing = File.ReadAllText(targetFull);
+                if (string.Equals(existing, url, StringComparison.Ordinal))
+                {
+                    unchanged++;
+                    continue;
+                }
+
+                File.WriteAllText(targetFull, url);
+                updated++;
+            }
+            else
+            {
+                File.WriteAllText(targetFull, url);
+                added++;
+            }
+        }
+
+        var (cleanupRemoved, foreign) = CleanupStale(rootFull, rootWithSep, expectedFolderByHash);
+
+        return new StrmSyncResult(added, updated, unchanged, cleanupRemoved, skipped, foreign, rejected);
+    }
+
+    /// <summary>
+    /// Async Variante mit Pre-Cache-State-Check. Skippt .strm-Schreiben fuer Hashes
+    /// die bereits als cached markiert sind (PrecacheWorker hat .mp4 daneben gelegt).
+    /// Loescht existierende .strm wenn Hash als cached gilt.
+    /// Single Source of Truth gegen Race-Conditions mit PrecacheWorker.
+    /// </summary>
+    public static async Task<StrmSyncResult> SyncAsync(
+        string strmDirectory,
+        IEnumerable<LibraryItem> libraryItems,
+        string apiBaseUrl,
+        string apiToken,
+        PrecacheStateStore precacheState,
+        ILogger? logger,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(precacheState);
+
+        if (string.IsNullOrWhiteSpace(strmDirectory))
+        {
+            throw new ArgumentException("StrmDirectory ist leer.", nameof(strmDirectory));
+        }
+
+        Directory.CreateDirectory(strmDirectory);
+
+        var rootFull = Path.GetFullPath(strmDirectory);
+        var rootWithSep = rootFull.EndsWith(Path.DirectorySeparatorChar)
+            ? rootFull
+            : rootFull + Path.DirectorySeparatorChar;
+
+        var baseUrl = (apiBaseUrl ?? string.Empty).TrimEnd('/');
+        var token = apiToken ?? string.Empty;
+
+        int added = 0, updated = 0, unchanged = 0, skipped = 0, rejected = 0;
+
+        var expectedFolderByHash = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var item in libraryItems)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (string.IsNullOrWhiteSpace(item.Hash) || item.TmdbId is null)
+            {
+                skipped++;
+                continue;
+            }
+
+            if (!HashPattern.IsMatch(item.Hash))
+            {
+                rejected++;
+                continue;
+            }
+
+            var folderName = BuildFolderName(item.Title, item.Year, item.TmdbId.Value);
+
+            var folderPath = Path.Combine(rootFull, folderName);
+            var folderFull = Path.GetFullPath(folderPath);
+            if (!folderFull.StartsWith(rootWithSep, StringComparison.Ordinal))
+            {
+                rejected++;
+                continue;
+            }
+
+            var targetPath = Path.Combine(folderFull, $"{item.Hash}.strm");
+            var targetFull = Path.GetFullPath(targetPath);
+            if (!targetFull.StartsWith(rootWithSep, StringComparison.Ordinal))
+            {
+                rejected++;
+                continue;
+            }
+
+            expectedFolderByHash[item.Hash] = folderName;
+
+            // Pre-Cache-Check: wenn Hash als cached gilt → .strm nicht schreiben
+            var isCached = await precacheState.IsCachedAsync(item.Hash, ct).ConfigureAwait(false);
+            if (isCached)
+            {
+                logger?.LogInformation("strm_sync:skipped_cached {Hash}", item.Hash);
+
+                // Wenn .strm existiert → loeschen (Cleanup: PrecacheWorker hat .mp4 daneben)
+                if (File.Exists(targetFull))
+                {
+                    File.Delete(targetFull);
+                    logger?.LogInformation("strm_sync:deleted_cached_strm {Hash} {Path}", item.Hash, targetFull);
+                }
+
+                skipped++;
+                continue;
+            }
 
             Directory.CreateDirectory(folderFull);
 

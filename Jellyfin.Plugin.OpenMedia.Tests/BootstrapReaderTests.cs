@@ -41,13 +41,15 @@ public sealed class BootstrapReaderTests : IDisposable
     private PluginConfiguration FreshConfig() => new()
     {
         ApiUrl = string.Empty,
-        ApiToken = string.Empty
+        ApiToken = string.Empty,
+        MediaSigningSecret = string.Empty
     };
 
     private PluginConfiguration FilledConfig() => new()
     {
         ApiUrl = "https://existing.example.com",
-        ApiToken = "om_already_set"
+        ApiToken = "om_already_set",
+        MediaSigningSecret = "existing_secret_that_is_exactly_32_charss"
     };
 
     [Fact]
@@ -225,6 +227,62 @@ public sealed class BootstrapReaderTests : IDisposable
     {
         Assert.Throws<ArgumentNullException>(
             () => BootstrapReader.TryApply(_paths, null!));
+    }
+
+    [Fact]
+    public void TryApply_MediaSigningSecret_SetsOnEmptyConfig()
+    {
+        File.WriteAllText(
+            BootstrapPath,
+            """{ "apiUrl": "https://api.mediatoken.de", "apiToken": "om_abc123", "media_signing_secret": "abcdefghijklmnopqrstuvwxyz123456" }""");
+
+        var config = FreshConfig();
+        var result = BootstrapReader.TryApply(_paths, config);
+
+        Assert.True(result);
+        Assert.Equal("https://api.mediatoken.de", config.ApiUrl);
+        Assert.Equal("om_abc123", config.ApiToken);
+        Assert.Equal("abcdefghijklmnopqrstuvwxyz123456", config.MediaSigningSecret);
+        Assert.False(File.Exists(BootstrapPath));
+    }
+
+    [Fact]
+    public void TryApply_MediaSigningSecret_Idempotent_DoesNotOverwrite()
+    {
+        File.WriteAllText(
+            BootstrapPath,
+            """{ "apiUrl": "https://api.mediatoken.de", "apiToken": "om_abc123", "media_signing_secret": "new_secret_value_that_is_32_chars_xx" }""");
+
+        var config = new PluginConfiguration
+        {
+            ApiUrl = string.Empty,
+            ApiToken = string.Empty,
+            MediaSigningSecret = "existing_secret_value_that_is_32_chars!!"
+        };
+
+        var result = BootstrapReader.TryApply(_paths, config);
+
+        Assert.True(result);
+        Assert.Equal("https://api.mediatoken.de", config.ApiUrl);
+        Assert.Equal("om_abc123", config.ApiToken);
+        // Existing secret must NOT be overwritten
+        Assert.Equal("existing_secret_value_that_is_32_chars!!", config.MediaSigningSecret);
+        Assert.False(File.Exists(BootstrapPath));
+    }
+
+    [Fact]
+    public void TryApply_MediaSigningSecret_Missing_DoesNotError()
+    {
+        File.WriteAllText(
+            BootstrapPath,
+            """{ "apiUrl": "https://api.mediatoken.de", "apiToken": "om_abc123" }""");
+
+        var config = FreshConfig();
+        var result = BootstrapReader.TryApply(_paths, config);
+
+        Assert.True(result);
+        Assert.Equal(string.Empty, config.MediaSigningSecret);
+        Assert.False(File.Exists(BootstrapPath));
     }
 
     [Fact]

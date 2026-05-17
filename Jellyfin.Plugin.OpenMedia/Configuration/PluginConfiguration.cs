@@ -31,4 +31,18 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <see cref="LibraryName"/> an die auf <see cref="StrmDirectory"/> zeigt.
     /// </summary>
     public bool AutoCreateLibrary { get; set; } = true;
+
+    /// <summary>
+    /// Shared HMAC-SHA256 Secret fuer das Signieren von Media-URLs.
+    /// Muss mit dem Secret der openmedia-API uebereinstimmen.
+    /// Wird idempotent aus bootstrap.json gesetzt (nur wenn noch leer).
+    /// </summary>
+    public string MediaSigningSecret { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Fallback-User-ID fuer das Signieren von Media-URLs, wenn der
+    /// Jellyfin-Context keine UserId liefert.
+    /// Leer = signed URL wird nicht erzeugt (fallback auf token-Modus).
+    /// </summary>
+    public string DefaultUserId { get; set; } = string.Empty;
 }

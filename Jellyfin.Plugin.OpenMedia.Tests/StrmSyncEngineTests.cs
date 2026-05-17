@@ -1,8 +1,12 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Jellyfin.Plugin.OpenMedia.Api;
 using Jellyfin.Plugin.OpenMedia.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace Jellyfin.Plugin.OpenMedia.Tests;
@@ -429,5 +433,139 @@ public sealed class StrmSyncEngineTests : IDisposable
         Assert.Equal("a b", StrmSyncEngine.SanitizeTitle("a:b"));
         // Sonderzeichen am Rand wegtrimmen
         Assert.Equal("trim", StrmSyncEngine.SanitizeTitle("???trim???"));
+    }
+
+    // === PrecacheState-aware tests (T05) ===
+
+    /// <summary>
+    /// Helper: Creates a PrecacheStateStore backed by a temp directory.
+    /// </summary>
+    private static (PrecacheStateStore Store, string DataDir) CreateStateStore()
+    {
+        var dataDir = Path.Combine(Path.GetTempPath(), $"openmedia-precache-state-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dataDir);
+        var logger = NullLogger<PrecacheStateStore>.Instance;
+        var store = new PrecacheStateStore(dataDir, logger);
+        return (store, dataDir);
+    }
+
+    /// <summary>
+    /// Helper: Marks a hash as cached with a local file.
+    /// </summary>
+    private static async Task MarkAsCachedAsync(PrecacheStateStore store, string hash, string localPath, CancellationToken ct)
+    {
+        await store.UpdateAsync(hash, _ => new PrecacheEntry
+        {
+            State = PrecacheState.Done,
+            DownloadedBytes = 1024,
+            SizeBytes = 1024,
+            LocalPath = localPath,
+            Sha256 = hash,
+        }, ct);
+    }
+
+    [Fact]
+    public async Task SyncAsync_CachedHash_SkipsStrmWrite()
+    {
+        // (a) cached=true → .strm NICHT geschrieben
+        var (store, stateDir) = CreateStateStore();
+        using var __ = store;
+        try
+        {
+            // Erzeuge eine fake lokale Datei damit IsCached true wird
+            var cachedFile = Path.Combine(_tempDir, $"{HashA}.mp4");
+            Directory.CreateDirectory(Path.GetDirectoryName(cachedFile)!);
+            await File.WriteAllTextAsync(cachedFile, "fake video data");
+
+            await MarkAsCachedAsync(store, HashA, cachedFile, CancellationToken.None);
+
+            var items = new[] { Item(HashA, tmdbId: 1L, title: "Alpha", year: 2020) };
+
+            var result = await StrmSyncEngine.SyncAsync(
+                _tempDir, items, BaseUrl, Token, store,
+                NullLogger.Instance, CancellationToken.None);
+
+            Assert.Equal(0, result.Added);
+            // Skipped=1 (cached) + der skipped counter wird incrementiert
+            Assert.True(result.Skipped >= 1, $"Expected at least 1 skipped, got {result.Skipped}");
+
+            // .strm darf NICHT existieren
+            var folder = FolderFor("Alpha", 2020, 1L);
+            var strmPath = Path.Combine(_tempDir, folder, $"{HashA}.strm");
+            Assert.False(File.Exists(strmPath), $"Expected .strm to NOT exist at {strmPath}");
+        }
+        finally
+        {
+            try { Directory.Delete(stateDir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task SyncAsync_CachedHash_DeletesExistingStrm()
+    {
+        // (b) cached=true + existierende .strm → .strm gelöscht
+        var (store, stateDir) = CreateStateStore();
+        using var __ = store;
+        try
+        {
+            // Erstelle .strm vorher
+            var folder = FolderFor("Alpha", 2020, 1L);
+            var folderPath = Path.Combine(_tempDir, folder);
+            Directory.CreateDirectory(folderPath);
+            var strmPath = Path.Combine(folderPath, $"{HashA}.strm");
+            await File.WriteAllTextAsync(strmPath, $"{BaseUrl}/jellyfin/stream/{HashA}?token={Token}");
+
+            // Erzeuge .mp4 cached file
+            var cachedFile = Path.Combine(_tempDir, $"{HashA}.mp4");
+            await File.WriteAllTextAsync(cachedFile, "fake video data");
+
+            await MarkAsCachedAsync(store, HashA, cachedFile, CancellationToken.None);
+
+            Assert.True(File.Exists(strmPath), "Precondition: .strm must exist before sync");
+
+            var items = new[] { Item(HashA, tmdbId: 1L, title: "Alpha", year: 2020) };
+
+            var result = await StrmSyncEngine.SyncAsync(
+                _tempDir, items, BaseUrl, Token, store,
+                NullLogger.Instance, CancellationToken.None);
+
+            Assert.Equal(0, result.Added);
+            Assert.True(result.Skipped >= 1);
+
+            // .strm muss geloescht sein
+            Assert.False(File.Exists(strmPath), $"Expected .strm to be deleted at {strmPath}");
+        }
+        finally
+        {
+            try { Directory.Delete(stateDir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task SyncAsync_NotCached_WritesStrmNormally()
+    {
+        // (c) cached=false → normaler .strm-Pfad weiter funktional (Regression-Schutz)
+        var (store, stateDir) = CreateStateStore();
+        using var __ = store;
+        try
+        {
+            // HashA ist NICHT im PrecacheState → IsCached=false
+            var items = new[] { Item(HashA, tmdbId: 1L, title: "Alpha", year: 2020) };
+
+            var result = await StrmSyncEngine.SyncAsync(
+                _tempDir, items, BaseUrl, Token, store,
+                NullLogger.Instance, CancellationToken.None);
+
+            Assert.Equal(1, result.Added);
+
+            var folder = FolderFor("Alpha", 2020, 1L);
+            var strmPath = Path.Combine(_tempDir, folder, $"{HashA}.strm");
+            Assert.True(File.Exists(strmPath), $"Expected .strm to exist at {strmPath}");
+            Assert.Equal($"{BaseUrl}/jellyfin/stream/{HashA}?token={Token}", File.ReadAllText(strmPath));
+        }
+        finally
+        {
+            try { Directory.Delete(stateDir, recursive: true); } catch { }
+        }
     }
 }
