@@ -34,17 +34,20 @@ public class LibrarySyncRunner : ILibrarySyncRunner
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IApplicationPaths _applicationPaths;
     private readonly ILibraryManager _libraryManager;
+    private readonly PrecacheStateStore _precacheStateStore;
 
     public LibrarySyncRunner(
         ILogger<LibrarySyncRunner> logger,
         IHttpClientFactory httpClientFactory,
         IApplicationPaths applicationPaths,
-        ILibraryManager libraryManager)
+        ILibraryManager libraryManager,
+        PrecacheStateStore precacheStateStore)
     {
         _logger = logger;
         _httpClientFactory = httpClientFactory;
         _applicationPaths = applicationPaths;
         _libraryManager = libraryManager;
+        _precacheStateStore = precacheStateStore;
     }
 
     public async Task<StrmSyncResult?> RunOnceAsync(CancellationToken cancellationToken)
@@ -81,7 +84,19 @@ public class LibrarySyncRunner : ILibrarySyncRunner
         StrmSyncResult result;
         try
         {
-            result = StrmSyncEngine.Sync(strmDir, items, config.ApiUrl, config.ApiToken);
+            // Pre-Cache-aware sync: loescht .strm fuer gecachte Hashes,
+            // skippt .strm-Schreiben wenn PrecacheWorker bereits .mp4 abgelegt hat.
+            var precacheState = _precacheStateStore;
+            if (precacheState is not null)
+            {
+                result = await StrmSyncEngine.SyncAsync(
+                    strmDir, items, config.ApiUrl, config.ApiToken,
+                    precacheState, _logger, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                result = StrmSyncEngine.Sync(strmDir, items, config.ApiUrl, config.ApiToken);
+            }
         }
         catch (Exception ex)
         {

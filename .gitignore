@@ -18,8 +18,4 @@ Thumbs.db
 # Plugin packaging
 *.zip
 artifacts/
-# Build artifacts inside publish/ (meta.json and thumb.png stay tracked)
-publish/*.dll
-publish/*.pdb
-publish/*.deps.json
-publish/*.runtimeconfig.json
+publish/

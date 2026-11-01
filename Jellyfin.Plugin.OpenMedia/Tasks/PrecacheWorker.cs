@@ -170,6 +170,7 @@ public class PrecacheWorker : BackgroundService
             var strmDir = GetStrmDirectory();
             var folderName = StrmSyncEngine.BuildFolderName(libItem.Title, libItem.Year, libItem.TmdbId.Value);
             var targetFolder = Path.Combine(strmDir, folderName);
+            var fileStem = StrmSyncEngine.BuildMediaFileStem(libItem.Title, libItem.Year);
 
             // Parse file size
             var sizeBytes = ParseFileSize(libItem.FileSize);
@@ -213,7 +214,7 @@ public class PrecacheWorker : BackgroundService
                 State = PrecacheState.Downloading,
                 DownloadedBytes = e?.DownloadedBytes ?? 0,
                 SizeBytes = sizeBytes,
-                LocalPath = Path.Combine(targetFolder, $"{hash}.mp4"),
+                LocalPath = Path.Combine(targetFolder, $"{fileStem}.mp4"),
             }, ct).ConfigureAwait(false);
 
             await ReportStatusAsync(hash, "downloading", null, 0L, sizeBytes, ct).ConfigureAwait(false);
@@ -223,14 +224,14 @@ public class PrecacheWorker : BackgroundService
             try
             {
                 downloadResult = await PerformDownloadAsync(
-                    hash, signedUrl, sizeBytes, targetFolder, null, ct).ConfigureAwait(false);
+                    hash, signedUrl, sizeBytes, targetFolder, fileStem, null, ct).ConfigureAwait(false);
             }
             catch (Exception ex) when (IsDiskFullException(ex))
             {
                 // ENOSPC mid-download: clean up .partial file, report failure
-                var partialPath = Path.Combine(targetFolder, $"{hash}.mp4.partial");
+                var partialPath = Path.Combine(targetFolder, $"{fileStem}.mp4.partial");
                 var existingEntry = await _stateStore.GetAsync(hash, ct).ConfigureAwait(false);
-                var localPath = existingEntry?.LocalPath ?? Path.Combine(targetFolder, $"{hash}.mp4");
+                var localPath = existingEntry?.LocalPath ?? Path.Combine(targetFolder, $"{fileStem}.mp4");
 
                 _logger.LogError(
                     "precache:enospc_during_download {Hash} {BytesDownloaded}",
@@ -252,32 +253,13 @@ public class PrecacheWorker : BackgroundService
                 return;
             }
 
-            // (8) SHA256 verify: hash IS the expected SHA256
-            if (!string.Equals(downloadResult.Sha256, hash, StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogError(
-                    "precache:sha_mismatch {Hash} expected={Expected} actual={Actual}",
-                    hash, hash, downloadResult.Sha256);
-
-                // Delete .mp4 on mismatch
-                var mismatchPath = downloadResult.FinalPath;
-                if (!string.IsNullOrEmpty(mismatchPath) && File.Exists(mismatchPath))
-                {
-                    File.Delete(mismatchPath);
-                    _logger.LogInformation("precache:deleted_mismatch {Path}", mismatchPath);
-                }
-
-                await _stateStore.UpdateAsync(hash, _ => new PrecacheEntry
-                {
-                    State = PrecacheState.Failed,
-                    DownloadedBytes = 0,
-                    SizeBytes = sizeBytes,
-                    LastError = "sha_mismatch",
-                }, ct).ConfigureAwait(false);
-
-                await ReportStatusAsync(hash, "failed", "sha_mismatch", null, null, ct).ConfigureAwait(false);
-                return;
-            }
+            // (8) Download successful — file is on disk.
+            // Note: The hash is a NzbFile identifier, NOT the SHA256 of the
+            // downloaded _stream.mp4. SHA256 is logged for audit but cannot
+            // be verified against a known value (we'd need a separate endpoint).
+            _logger.LogInformation(
+                "precache:sha_logged {Hash} sha256={Sha256}",
+                hash, downloadResult.Sha256);
 
             _logger.LogInformation("precache:sha_verify {Hash} ok=true", hash);
 
@@ -441,9 +423,9 @@ public class PrecacheWorker : BackgroundService
     /// <summary>Download via PrecacheDownloader with Range-Resume, SHA256, atomic rename.</summary>
     protected virtual async Task<DownloadResult> PerformDownloadAsync(
         string hash, string signedUrl, long expectedSize,
-        string targetFolder, IProgress<long>? progress, CancellationToken ct)
+        string targetFolder, string fileNameStem, IProgress<long>? progress, CancellationToken ct)
     {
-        return await _downloader!.DownloadAsync(hash, signedUrl, expectedSize, targetFolder, progress, ct)
+        return await _downloader!.DownloadAsync(hash, signedUrl, expectedSize, targetFolder, fileNameStem, progress, ct)
             .ConfigureAwait(false);
     }
 

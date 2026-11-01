@@ -300,6 +300,25 @@ public static class StrmSyncEngine
     }
 
     /// <summary>
+    /// Baut den Dateinamen-Stamm fuer die heruntergeladene Mediendatei:
+    /// <c>{SanitizedTitle}[ ({Year})]</c> ohne <c>[tmdbid-...]</c> und ohne Extension.
+    /// Jellyfin's MovieResolver erkennt eine .mp4 mit reinem 64-Hex-Hash-Namen nicht als
+    /// Movie — der Dateiname muss menschenlesbar sein, ohne den tmdb-Marker (der ist
+    /// schon im Ordnernamen). Internal fuer Tests.
+    /// </summary>
+    internal static string BuildMediaFileStem(string? title, int? year)
+    {
+        var sanitized = SanitizeTitle(title);
+        if (string.IsNullOrEmpty(sanitized))
+        {
+            sanitized = "Untitled";
+        }
+
+        var yearPart = year.HasValue ? $" ({year.Value})" : string.Empty;
+        return $"{sanitized}{yearPart}";
+    }
+
+    /// <summary>
     /// Ersetzt alle Zeichen ausserhalb von <c>[A-Za-z0-9 _.,!&amp;'()-]</c> durch Space,
     /// kollabiert mehrfache Whitespaces und trimmt. Internal fuer Tests.
     /// </summary>

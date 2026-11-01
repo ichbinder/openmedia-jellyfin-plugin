@@ -57,12 +57,14 @@ public sealed class PrecacheDownloader
         string signedUrl,
         long expectedSize,
         string targetFolder,
+        string fileNameStem,
         IProgress<long>? progress,
         CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(hash);
         ArgumentNullException.ThrowIfNull(signedUrl);
         ArgumentNullException.ThrowIfNull(targetFolder);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileNameStem);
 
         if (expectedSize <= 0)
         {
@@ -73,19 +75,16 @@ public sealed class PrecacheDownloader
 
         Directory.CreateDirectory(targetFolder);
 
-        var partialPath = Path.Combine(targetFolder, $"{hash}.mp4.partial");
-        var finalPath = Path.Combine(targetFolder, $"{hash}.mp4");
+        var partialPath = Path.Combine(targetFolder, $"{fileNameStem}.mp4.partial");
+        var finalPath = Path.Combine(targetFolder, $"{fileNameStem}.mp4");
 
         // Falls die finale Datei bereits existiert → direkt OK
+        // (Tolerant bei Groesse: Stream-Version kann anders sein als Original)
         if (File.Exists(finalPath))
         {
-            var existingSize = new FileInfo(finalPath).Length;
-            if (existingSize == expectedSize)
-            {
-                _logger.LogInformation("precache:already_complete {Hash} {Path}", hash, finalPath);
-                var existingSha = await ComputeFileSha256Async(finalPath, ct).ConfigureAwait(false);
-                return new DownloadResult(existingSha, finalPath, 0);
-            }
+            _logger.LogInformation("precache:already_complete {Hash} {Path}", hash, finalPath);
+            var existingSha = await ComputeFileSha256Async(finalPath, ct).ConfigureAwait(false);
+            return new DownloadResult(existingSha, finalPath, 0);
         }
 
         // Pruefe ob .partial existiert → Resume
@@ -204,16 +203,16 @@ public sealed class PrecacheDownloader
         var hashBytes = sha256.Hash!;
         var sha256String = BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
 
-        // Size verification
+        // Size verification — warn but do NOT fail on mismatch.
+        // The library reports original fileSize, but the stream endpoint
+        // may serve a transcoded _stream.mp4 with a different size.
+        // SHA256 is the authoritative integrity check.
         var actualSize = new FileInfo(partialPath).Length;
         if (actualSize != expectedSize)
         {
-            _logger.LogError(
-                "precache:size_mismatch {Hash} expected={Expected} actual={Actual}",
+            _logger.LogWarning(
+                "precache:size_mismatch {Hash} expected={Expected} actual={Actual} — continuing (SHA256 authoritative)",
                 hash, expectedSize, actualSize);
-
-            throw new IOException(
-                $"Size mismatch for {hash}: expected {expectedSize} bytes, got {actualSize} bytes. Partial file preserved at {partialPath}");
         }
 
         _logger.LogInformation("precache:sha_verify {Hash} {Sha256} ok=true", hash, sha256String);

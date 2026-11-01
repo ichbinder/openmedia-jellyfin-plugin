@@ -27,14 +27,26 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         Instance = this;
 
-        // Personalisierte ZIPs der openmedia-API enthalten eine bootstrap.json
-        // mit {apiUrl, apiToken}. Beim ersten Start uebernehmen wir die Werte
-        // in die Plugin-Konfiguration (nur wenn noch nicht gesetzt) und loeschen
-        // die Datei.
-        var pluginDir = Path.GetDirectoryName(GetType().Assembly.Location);
-        if (BootstrapReader.TryApply(applicationPaths, Configuration, pluginDir, logger))
+        // Defensive: niemals im Konstruktor werfen — sonst laedt Jellyfin das
+        // Plugin nicht in den PluginManager, Disable/Uninstall geben 404, und
+        // das Plugin ist nur noch manuell loeschbar (Jellyfin 10.11 Bug #15161).
+        try
         {
-            SaveConfiguration();
+            // Personalisierte ZIPs der openmedia-API enthalten eine bootstrap.json
+            // mit {apiUrl, apiToken}. Beim ersten Start uebernehmen wir die Werte
+            // in die Plugin-Konfiguration (nur wenn noch nicht gesetzt) und loeschen
+            // die Datei.
+            var pluginDir = Path.GetDirectoryName(GetType().Assembly.Location);
+            if (BootstrapReader.TryApply(applicationPaths, Configuration, pluginDir, logger))
+            {
+                SaveConfiguration();
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex,
+                "openmedia: Fehler beim Laden der Plugin-Konfiguration. "
+                + "Plugin laeuft mit Standardwerten weiter.");
         }
     }
 
