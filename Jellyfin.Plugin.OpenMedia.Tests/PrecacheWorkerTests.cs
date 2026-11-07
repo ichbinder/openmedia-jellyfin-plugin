@@ -92,7 +92,7 @@ public sealed class PrecacheWorkerTests : IDisposable
         protected override Task<LibraryItem?> ResolveLibraryItemAsync(string hash, CancellationToken ct)
             => ResolveItemFunc!(hash, ct);
 
-        protected override Task<DownloadResult> PerformDownloadAsync(string hash, string signedUrl, long expectedSize, string targetFolder, IProgress<long>? progress, CancellationToken ct)
+        protected override Task<DownloadResult> PerformDownloadAsync(string hash, string signedUrl, long expectedSize, string targetFolder, string fileNameStem, IProgress<long>? progress, CancellationToken ct)
             => DownloadFunc!(hash, signedUrl, expectedSize, targetFolder, progress, ct);
 
         protected override string CreateSignedUrl(string hash, string userId)

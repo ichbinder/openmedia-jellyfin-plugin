@@ -104,6 +104,7 @@ public sealed class PrecacheDownloaderTests : IDisposable
             "https://s3.example.com/video.mp4",
             data.Length,
             _tempDir,
+            TestHash,
             new Progress<long>(b => reportedBytes = b),
             CancellationToken.None);
 
@@ -146,6 +147,7 @@ public sealed class PrecacheDownloaderTests : IDisposable
             "https://s3.example.com/video.mp4",
             data.Length,
             _tempDir,
+            TestHash,
             progress: null,
             CancellationToken.None);
 
@@ -183,6 +185,7 @@ public sealed class PrecacheDownloaderTests : IDisposable
             "https://s3.example.com/video.mp4",
             data.Length,
             _tempDir,
+            TestHash,
             progress: null,
             CancellationToken.None);
 
@@ -213,6 +216,7 @@ public sealed class PrecacheDownloaderTests : IDisposable
                 "https://s3.example.com/video.mp4",
                 data.Length * 2, // falsche ExpectedSize
                 _tempDir,
+                TestHash,
                 progress: null,
                 CancellationToken.None));
 
@@ -250,6 +254,7 @@ public sealed class PrecacheDownloaderTests : IDisposable
                 "https://s3.example.com/video.mp4",
                 data.Length,
                 _tempDir,
+                TestHash,
                 progress: null,
                 cts.Token));
 
@@ -273,6 +278,7 @@ public sealed class PrecacheDownloaderTests : IDisposable
                 "https://s3.example.com/video.mp4",
                 0, // invalid
                 _tempDir,
+                TestHash,
                 progress: null,
                 CancellationToken.None));
     }
