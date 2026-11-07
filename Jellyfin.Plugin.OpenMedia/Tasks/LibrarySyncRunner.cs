@@ -103,10 +103,13 @@ public class LibrarySyncRunner : ILibrarySyncRunner
                 result = StrmSyncEngine.Sync(strmDir, movies, config.ApiUrl, config.ApiToken);
             }
 
-            var episodeResult = await EpisodeStrmSyncEngine.SyncAsync(
-                tvDir, episodes, config.ApiUrl, config.ApiToken,
-                precacheState, _logger, cancellationToken).ConfigureAwait(false);
-            result = StrmSyncResult.Combine(result, episodeResult);
+            result = await CombineWithEpisodeSyncAsync(
+                result,
+                () => EpisodeStrmSyncEngine.SyncAsync(
+                    tvDir, episodes, config.ApiUrl, config.ApiToken,
+                    precacheState, _logger, cancellationToken),
+                tvDir,
+                _logger).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -132,5 +135,26 @@ public class LibrarySyncRunner : ILibrarySyncRunner
         }
 
         return result;
+    }
+
+    internal static async Task<StrmSyncResult> CombineWithEpisodeSyncAsync(
+        StrmSyncResult movieResult,
+        Func<Task<StrmSyncResult>> episodeSync,
+        string tvDir,
+        ILogger logger)
+    {
+        try
+        {
+            return StrmSyncResult.Combine(movieResult, await episodeSync().ConfigureAwait(false));
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Serien-STRM-Sync fehlgeschlagen (dir={Dir}) — Film-Ergebnis bleibt erhalten.", tvDir);
+            return movieResult;
+        }
     }
 }
