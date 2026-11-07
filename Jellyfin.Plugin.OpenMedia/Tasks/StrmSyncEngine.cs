@@ -45,12 +45,12 @@ public static class StrmSyncEngine
     /// Regex fuer einen gueltigen Sync-Hash: exakt 64 hex-Lowercase-Zeichen.
     /// Verhindert das Loeschen von z.B. "backup-2024.strm".
     /// </summary>
-    private static readonly Regex HashPattern = new("^[0-9a-f]{64}$", RegexOptions.Compiled);
+    internal static readonly Regex HashPattern = new("^[0-9a-f]{64}$", RegexOptions.Compiled);
 
     /// <summary>
     /// Erkennt von uns erzeugte Ordner: irgendwas, gefolgt von " [tmdbid-N]" am Ende.
     /// </summary>
-    private static readonly Regex TmdbFolderPattern = new(@" \[tmdbid-\d+\]$", RegexOptions.Compiled);
+    internal static readonly Regex TmdbFolderPattern = new(@" \[tmdbid-\d+\]$", RegexOptions.Compiled);
 
     /// <summary>
     /// Erlaubte Zeichen in einem sanitisierten Titel — alles andere wird durch Space ersetzt.

@@ -20,7 +20,10 @@ public sealed record LibraryItem(
     int? Year,
     string? FileSize,
     int? Duration,
-    string? Resolution);
+    string? Resolution,
+    string? Kind = null,
+    int? Season = null,
+    int? Episode = null);
 
 /// <summary>
 /// Antwort von GET /jellyfin/library/version — billiger Version-Stempel der gesamten
