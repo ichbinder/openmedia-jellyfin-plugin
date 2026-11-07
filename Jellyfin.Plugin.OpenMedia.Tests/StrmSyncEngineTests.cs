@@ -568,4 +568,30 @@ public sealed class StrmSyncEngineTests : IDisposable
             try { Directory.Delete(stateDir, recursive: true); } catch { }
         }
     }
+
+    [Fact]
+    public void StrmSyncResult_Combine_SumsAllFields()
+    {
+        var a = new StrmSyncResult(1, 2, 3, 4, 5, 6, 7);
+        var b = new StrmSyncResult(10, 20, 30, 40, 50, 60, 70);
+        Assert.Equal(new StrmSyncResult(11, 22, 33, 44, 55, 66, 77), StrmSyncResult.Combine(a, b));
+    }
+
+    [Fact]
+    public void MediaLocationFor_Movie_UsesMovieDirAndFolderName()
+    {
+        var item = new LibraryItem("h", 603, "The Matrix", 1999, null, null, null);
+        var (folder, stem) = StrmSyncEngine.MediaLocationFor(item, "/m", "/t");
+        Assert.Equal(Path.Combine("/m", "The Matrix (1999) [tmdbid-603]"), folder);
+        Assert.Equal("The Matrix (1999)", stem);
+    }
+
+    [Fact]
+    public void MediaLocationFor_Episode_UsesTvDirAndSeasonFolder()
+    {
+        var item = new LibraryItem("h", 95396, "Severance", 2022, null, null, null, "episode", 2, 5);
+        var (folder, stem) = StrmSyncEngine.MediaLocationFor(item, "/m", "/t");
+        Assert.Equal(Path.Combine("/t", "Severance (2022) [tmdbid-95396]", "Season 02"), folder);
+        Assert.Equal("Severance S02E05", stem);
+    }
 }

@@ -80,6 +80,34 @@
                     </div>
                 </div>
 
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="OpenMediaTvStrmDirectory">
+                        STRM-Verzeichnis (Serien)
+                    </label>
+                    <input is="emby-input"
+                           type="text"
+                           id="OpenMediaTvStrmDirectory"
+                           placeholder="/config/openmedia-strm-tv" />
+                    <div class="fieldDescription">
+                        Absoluter Pfad zum STRM-Verzeichnis fuer Serien. Leer lassen fuer den Default unter
+                        <code>&lt;data&gt;/openmedia-strm-tv</code>.
+                    </div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="OpenMediaTvLibraryName">
+                        Library-Name (Serien)
+                    </label>
+                    <input is="emby-input"
+                           type="text"
+                           id="OpenMediaTvLibraryName"
+                           placeholder="openmedia Serien" />
+                    <div class="fieldDescription">
+                        Name der automatisch angelegten Serien-Library (Typ <em>TV Shows</em>). Standard:
+                        <code>openmedia Serien</code>.
+                    </div>
+                </div>
+
                 <div class="checkboxContainer">
                     <label>
                         <input is="emby-checkbox" type="checkbox" id="OpenMediaAutoCreateLibrary" />
@@ -88,7 +116,9 @@
                     <div class="fieldDescription">
                         Wenn aktiv, prueft das Plugin beim Jellyfin-Start ob bereits eine Library mit
                         dem oben gesetzten Namen existiert. Falls nicht, wird sie als
-                        <em>Movies</em>-Library mit dem STRM-Verzeichnis als Quelle angelegt.
+                        <em>Movies</em>-Library mit dem STRM-Verzeichnis als Quelle angelegt;
+                        ebenso eine <em>TV Shows</em>-Library (Name siehe Library-Name (Serien)) mit dem
+                        Serien-Verzeichnis.
                         Existierende Libraries werden nie veraendert.
                     </div>
                 </div>
@@ -116,6 +146,8 @@
                     view.querySelector('#OpenMediaApiToken').value = config.ApiToken || '';
                     view.querySelector('#OpenMediaStrmDirectory').value = config.StrmDirectory || '';
                     view.querySelector('#OpenMediaLibraryName').value = config.LibraryName || 'openmedia';
+                    view.querySelector('#OpenMediaTvStrmDirectory').value = config.TvStrmDirectory || '';
+                    view.querySelector('#OpenMediaTvLibraryName').value = config.TvLibraryName || 'openmedia Serien';
                     view.querySelector('#OpenMediaAutoCreateLibrary').checked = config.AutoCreateLibrary !== false;
                     Dashboard.hideLoadingMsg();
                 });
@@ -128,6 +160,8 @@
                     config.ApiToken = view.querySelector('#OpenMediaApiToken').value.trim();
                     config.StrmDirectory = view.querySelector('#OpenMediaStrmDirectory').value.trim();
                     config.LibraryName = view.querySelector('#OpenMediaLibraryName').value.trim() || 'openmedia';
+                    config.TvStrmDirectory = view.querySelector('#OpenMediaTvStrmDirectory').value.trim();
+                    config.TvLibraryName = view.querySelector('#OpenMediaTvLibraryName').value.trim() || 'openmedia Serien';
                     config.AutoCreateLibrary = view.querySelector('#OpenMediaAutoCreateLibrary').checked;
                     ApiClient.updatePluginConfiguration(OpenMediaPluginId, config).then(function (result) {
                         Dashboard.processPluginConfigurationUpdateResult(result);

@@ -331,6 +331,40 @@ public sealed class OpenMediaMediaSourceProviderTests : IDisposable
     // ─── Bonus: ExtractHash unit tests (internal static, accessible via InternalsVisibleTo) ───
 
     [Fact]
+    public void ExtractHash_EpisodeStrmWithStreamUrl_ReturnsHashFromContent()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"om-extract-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var path = Path.Combine(dir, "Severance S02E05.strm");
+            File.WriteAllText(path, $"https://api.example.com/jellyfin/stream/{ValidHash}?token=x");
+            Assert.Equal(ValidHash, OpenMediaMediaSourceProvider.ExtractHash(path));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ExtractHash_NamedStrmWithoutStreamUrl_ReturnsNull()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"om-extract-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var path = Path.Combine(dir, "Foreign S01E01.strm");
+            File.WriteAllText(path, "https://example.com/video.mp4");
+            Assert.Null(OpenMediaMediaSourceProvider.ExtractHash(path));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ExtractHash_NullPath_ReturnsNull()
     {
         Assert.Null(OpenMediaMediaSourceProvider.ExtractHash(null));

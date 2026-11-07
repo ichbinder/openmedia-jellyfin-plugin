@@ -26,6 +26,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public string LibraryName { get; set; } = "openmedia";
 
+    /// <summary>Wie <see cref="StrmDirectory"/> fuer Serien. Leer = DataPath/openmedia-strm-tv.</summary>
+    public string TvStrmDirectory { get; set; } = string.Empty;
+
+    /// <summary>Name der automatisch angelegten Serien-Library.</summary>
+    public string TvLibraryName { get; set; } = "openmedia Serien";
+
     /// <summary>
     /// Wenn true legt das Plugin beim Start automatisch eine Movies-Library mit Namen
     /// <see cref="LibraryName"/> an die auf <see cref="StrmDirectory"/> zeigt.

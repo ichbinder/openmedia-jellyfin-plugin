@@ -64,6 +64,8 @@ public sealed class PrecacheWorkerTests : IDisposable
         public Func<string, string, string>? SignUrlFunc { get; set; }
         public Action? RefreshLibraryAction { get; set; }
         public Func<string>? GetStrmDirFunc { get; set; }
+        public Func<string>? GetTvStrmDirFunc { get; set; }
+        public string? LastFileStem { get; private set; }
         public Func<string, long, (bool Ok, long FreeBytes, long RequiredBytes)>? DiskQuotaFunc { get; set; }
 
         // Spy state
@@ -92,8 +94,11 @@ public sealed class PrecacheWorkerTests : IDisposable
         protected override Task<LibraryItem?> ResolveLibraryItemAsync(string hash, CancellationToken ct)
             => ResolveItemFunc!(hash, ct);
 
-        protected override Task<DownloadResult> PerformDownloadAsync(string hash, string signedUrl, long expectedSize, string targetFolder, IProgress<long>? progress, CancellationToken ct)
-            => DownloadFunc!(hash, signedUrl, expectedSize, targetFolder, progress, ct);
+        protected override Task<DownloadResult> PerformDownloadAsync(string hash, string signedUrl, long expectedSize, string targetFolder, string fileNameStem, IProgress<long>? progress, CancellationToken ct)
+        {
+            LastFileStem = fileNameStem;
+            return DownloadFunc!(hash, signedUrl, expectedSize, targetFolder, progress, ct);
+        }
 
         protected override string CreateSignedUrl(string hash, string userId)
             => SignUrlFunc!(hash, userId);
@@ -106,6 +111,9 @@ public sealed class PrecacheWorkerTests : IDisposable
 
         protected override string GetStrmDirectory()
             => GetStrmDirFunc?.Invoke() ?? "/tmp/strm";
+
+        protected override string GetTvStrmDirectory()
+            => GetTvStrmDirFunc?.Invoke() ?? "/tmp/strm-tv";
 
         protected override (bool Ok, long FreeBytes, long RequiredBytes) CheckDiskQuota(string folder, long expectedSize)
             => DiskQuotaFunc != null
@@ -172,12 +180,41 @@ public sealed class PrecacheWorkerTests : IDisposable
 
     #endregion
 
+    #region Episode
+
+    [Fact]
+    public async Task Episode_DownloadedIntoSeasonFolderWithEpisodeStem()
+    {
+        var tvDir = Path.Combine(_tempDir, "tv");
+        var worker = new TestablePrecacheWorker(_logger, _stateStore);
+        worker.GetQueueFunc = _ => Task.FromResult<IReadOnlyList<QueueItem>>(new[] { MakeQueueItem() });
+        worker.ResolveItemFunc = (hash, _) => Task.FromResult<LibraryItem?>(
+            new LibraryItem(hash, 95396, "Severance", 2022, "1048576", 3000, "1080p", "episode", 2, 5));
+        worker.SignUrlFunc = (hash, userId) => $"https://s3.example.com/{hash}?sig=test";
+        worker.GetStrmDirFunc = () => _strmDir;
+        worker.GetTvStrmDirFunc = () => tvDir;
+        worker.RefreshLibraryAction = () => { };
+
+        string? downloadFolder = null;
+        worker.DownloadFunc = (hash, url, size, folder, progress, ct) =>
+        {
+            downloadFolder = folder;
+            return Task.FromResult(new DownloadResult(TestHash, Path.Combine(folder, "x.mp4"), size));
+        };
+
+        await worker.TickAsync(CancellationToken.None);
+
+        Assert.Equal(Path.Combine(tvDir, "Severance (2022) [tmdbid-95396]", "Season 02"), downloadFolder);
+        Assert.Equal("Severance S02E05", worker.LastFileStem);
+    }
+
+    #endregion
+
     #region SHA Mismatch
 
     [Fact]
-    public async Task ShaMismatch_FileDeletedAndStateFailed()
+    public async Task ShaDiffersFromHash_FileKeptAndStateDone()
     {
-        // Arrange
         var worker = new TestablePrecacheWorker(_logger, _stateStore);
         var queueItem = MakeQueueItem();
 
@@ -188,40 +225,28 @@ public sealed class PrecacheWorkerTests : IDisposable
         worker.ReportStatusFunc = (h, s, r, b, sz, _) => Task.CompletedTask;
         worker.RefreshLibraryAction = () => { };
 
-        // Create the .mp4 file to verify it gets deleted on mismatch
         var targetFolder = Path.Combine(_strmDir, "Test Movie (2024) [tmdbid-12345]");
         Directory.CreateDirectory(targetFolder);
-        var finalPath = Path.Combine(targetFolder, $"{TestHash}.mp4");
+        var finalPath = Path.Combine(targetFolder, "Test Movie (2024).mp4");
         await File.WriteAllTextAsync(finalPath, "fake content");
 
-        // Download returns a SHA256 that doesn't match the hash
-        var wrongSha = MismatchHash;
         worker.DownloadFunc = (hash, url, size, folder, progress, ct) =>
-            Task.FromResult(new DownloadResult(wrongSha, finalPath, size));
+            Task.FromResult(new DownloadResult(MismatchHash, finalPath, size));
 
-        // Act
         var delay = await worker.TickAsync(CancellationToken.None);
 
-        // Assert
         Assert.Equal(PrecacheWorker.PollingInterval, delay);
+        Assert.True(File.Exists(finalPath));
 
-        // .mp4 should be deleted
-        Assert.False(File.Exists(finalPath));
-
-        // State should be Failed
         var entry = await _stateStore.GetAsync(TestHash, CancellationToken.None);
         Assert.NotNull(entry);
-        Assert.Equal(PrecacheState.Failed, entry.State);
-        Assert.Equal("sha_mismatch", entry.LastError);
+        Assert.Equal(PrecacheState.Done, entry.State);
+        Assert.Equal(MismatchHash, entry.Sha256);
 
-        // Status reports: downloading, failed
         Assert.Equal(2, worker.StatusReports.Count);
         Assert.Equal("downloading", worker.StatusReports[0].State);
-        Assert.Equal("failed", worker.StatusReports[1].State);
-        Assert.Equal("sha_mismatch", worker.StatusReports[1].Reason);
-
-        // Library refresh NOT triggered
-        Assert.Equal(0, worker.LibraryRefreshCount);
+        Assert.Equal("done", worker.StatusReports[1].State);
+        Assert.Equal(1, worker.LibraryRefreshCount);
     }
 
     #endregion
@@ -509,7 +534,7 @@ public sealed class PrecacheWorkerTests : IDisposable
         // Create target folder and a .partial file to verify cleanup
         var targetFolder = Path.Combine(_strmDir, "Test Movie (2024) [tmdbid-12345]");
         Directory.CreateDirectory(targetFolder);
-        var partialPath = Path.Combine(targetFolder, $"{TestHash}.mp4.partial");
+        var partialPath = Path.Combine(targetFolder, "Test Movie (2024).mp4.partial");
         await File.WriteAllTextAsync(partialPath, "partial content");
 
         // Download throws IOException with "disk full" message
@@ -558,7 +583,7 @@ public sealed class PrecacheWorkerTests : IDisposable
 
         var targetFolder = Path.Combine(_strmDir, "Test Movie (2024) [tmdbid-12345]");
         Directory.CreateDirectory(targetFolder);
-        var partialPath = Path.Combine(targetFolder, $"{TestHash}.mp4.partial");
+        var partialPath = Path.Combine(targetFolder, "Test Movie (2024).mp4.partial");
         await File.WriteAllTextAsync(partialPath, "partial content");
 
         // Download throws IOException with ERROR_DISK_FULL HResult

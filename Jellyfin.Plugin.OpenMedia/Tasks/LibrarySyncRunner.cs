@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -67,6 +68,8 @@ public class LibrarySyncRunner : ILibrarySyncRunner
 
         var strmDir = LibrarySyncTask.GetEffectiveStrmDirectory(config.StrmDirectory, _applicationPaths);
 
+        var tvDir = LibrarySyncTask.GetEffectiveTvStrmDirectory(config.TvStrmDirectory, _applicationPaths);
+
         var http = _httpClientFactory.CreateClient(nameof(OpenMediaApiClient));
         var client = new OpenMediaApiClient(http, config.ApiUrl, config.ApiToken);
 
@@ -87,16 +90,26 @@ public class LibrarySyncRunner : ILibrarySyncRunner
             // Pre-Cache-aware sync: loescht .strm fuer gecachte Hashes,
             // skippt .strm-Schreiben wenn PrecacheWorker bereits .mp4 abgelegt hat.
             var precacheState = _precacheStateStore;
+            var movies = items.Where(i => i.Kind != "episode").ToList();
+            var episodes = items.Where(i => i.Kind == "episode").ToList();
             if (precacheState is not null)
             {
                 result = await StrmSyncEngine.SyncAsync(
-                    strmDir, items, config.ApiUrl, config.ApiToken,
+                    strmDir, movies, config.ApiUrl, config.ApiToken,
                     precacheState, _logger, cancellationToken).ConfigureAwait(false);
             }
             else
             {
-                result = StrmSyncEngine.Sync(strmDir, items, config.ApiUrl, config.ApiToken);
+                result = StrmSyncEngine.Sync(strmDir, movies, config.ApiUrl, config.ApiToken);
             }
+
+            result = await CombineWithEpisodeSyncAsync(
+                result,
+                () => EpisodeStrmSyncEngine.SyncAsync(
+                    tvDir, episodes, config.ApiUrl, config.ApiToken,
+                    precacheState, _logger, cancellationToken),
+                tvDir,
+                _logger).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -122,5 +135,26 @@ public class LibrarySyncRunner : ILibrarySyncRunner
         }
 
         return result;
+    }
+
+    internal static async Task<StrmSyncResult> CombineWithEpisodeSyncAsync(
+        StrmSyncResult movieResult,
+        Func<Task<StrmSyncResult>> episodeSync,
+        string tvDir,
+        ILogger logger)
+    {
+        try
+        {
+            return StrmSyncResult.Combine(movieResult, await episodeSync().ConfigureAwait(false));
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Serien-STRM-Sync fehlgeschlagen (dir={Dir}) — Film-Ergebnis bleibt erhalten.", tvDir);
+            return movieResult;
+        }
     }
 }

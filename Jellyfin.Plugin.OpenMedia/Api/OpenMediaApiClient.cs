@@ -20,7 +20,10 @@ public sealed record LibraryItem(
     int? Year,
     string? FileSize,
     int? Duration,
-    string? Resolution);
+    string? Resolution,
+    string? Kind = null,
+    int? Season = null,
+    int? Episode = null);
 
 /// <summary>
 /// Antwort von GET /jellyfin/library/version — billiger Version-Stempel der gesamten
@@ -57,7 +60,7 @@ public class OpenMediaApiClient
     /// </summary>
     public async Task<IReadOnlyList<LibraryItem>> GetLibraryAsync(CancellationToken ct)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"{_baseUrl}/jellyfin/library");
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"{_baseUrl}/jellyfin/library?include=episodes");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);
 
         using var res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);

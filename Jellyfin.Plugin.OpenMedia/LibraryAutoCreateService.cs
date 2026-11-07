@@ -64,14 +64,31 @@ public class LibraryAutoCreateService : IHostedService
             return;
         }
 
-        var libraryName = (config.LibraryName ?? string.Empty).Trim();
+        await EnsureVirtualFolderAsync(
+            config.LibraryName,
+            LibrarySyncTask.GetEffectiveStrmDirectory(config.StrmDirectory, _applicationPaths),
+            CollectionTypeOptions.movies,
+            cancellationToken).ConfigureAwait(false);
+
+        await EnsureVirtualFolderAsync(
+            config.TvLibraryName,
+            LibrarySyncTask.GetEffectiveTvStrmDirectory(config.TvStrmDirectory, _applicationPaths),
+            CollectionTypeOptions.tvshows,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    internal async Task EnsureVirtualFolderAsync(
+        string? configuredName,
+        string strmDir,
+        CollectionTypeOptions type,
+        CancellationToken cancellationToken)
+    {
+        var libraryName = (configuredName ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(libraryName))
         {
             _logger.LogWarning("LibraryName ist leer — Auto-Create uebersprungen.");
             return;
         }
-
-        var strmDir = LibrarySyncTask.GetEffectiveStrmDirectory(config.StrmDirectory, _applicationPaths);
 
         // Verzeichnis sicherstellen, damit der erste Library-Scan einen Pfad findet.
         try
@@ -134,12 +151,13 @@ public class LibraryAutoCreateService : IHostedService
         };
 
         _logger.LogInformation(
-            "Lege Jellyfin-Library {Name} (movies) mit Pfad {Dir} an.",
+            "Lege Jellyfin-Library {Name} ({Type}) mit Pfad {Dir} an.",
             libraryName,
+            type,
             strmDir);
 
         await _libraryManager
-            .AddVirtualFolder(libraryName, CollectionTypeOptions.movies, options, refreshLibrary: true)
+            .AddVirtualFolder(libraryName, type, options, refreshLibrary: true)
             .ConfigureAwait(false);
 
         _logger.LogInformation("Library {Name} erfolgreich angelegt.", libraryName);

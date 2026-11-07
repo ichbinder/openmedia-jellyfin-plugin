@@ -65,4 +65,14 @@ public class LibrarySyncTask : IScheduledTask
 
         return Path.Combine(paths.DataPath, "openmedia-strm");
     }
+
+    internal static string GetEffectiveTvStrmDirectory(string? configured, IApplicationPaths paths)
+    {
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            return configured;
+        }
+
+        return Path.Combine(paths.DataPath, "openmedia-strm-tv");
+    }
 }
