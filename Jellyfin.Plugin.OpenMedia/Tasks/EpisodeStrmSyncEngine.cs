@@ -42,7 +42,7 @@ public static class EpisodeStrmSyncEngine
         var token = apiToken ?? string.Empty;
         var ownedUrlPrefix = $"{baseUrl}/jellyfin/stream/";
 
-        int added = 0, updated = 0, unchanged = 0, skipped = 0, rejected = 0;
+        int added = 0, updated = 0, unchanged = 0, skipped = 0, rejected = 0, foreignTargets = 0;
         var expectedPaths = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var item in episodes)
@@ -71,12 +71,23 @@ public static class EpisodeStrmSyncEngine
                 continue;
             }
 
-            expectedPaths.Add(targetFull);
+            if (!expectedPaths.Add(targetFull))
+            {
+                skipped++;
+                continue;
+            }
+
+            var existing = File.Exists(targetFull) ? File.ReadAllText(targetFull) : null;
+            if (existing is not null && !existing.StartsWith(ownedUrlPrefix, StringComparison.Ordinal))
+            {
+                foreignTargets++;
+                continue;
+            }
 
             if (precacheState is not null && await precacheState.IsCachedAsync(item.Hash, ct).ConfigureAwait(false))
             {
                 logger?.LogInformation("episode_strm_sync:skipped_cached {Hash}", item.Hash);
-                if (File.Exists(targetFull))
+                if (existing is not null)
                 {
                     File.Delete(targetFull);
                 }
@@ -88,12 +99,12 @@ public static class EpisodeStrmSyncEngine
             Directory.CreateDirectory(Path.GetDirectoryName(targetFull)!);
             var url = StrmSyncEngine.BuildStreamUrl(baseUrl, item.Hash, token);
 
-            if (!File.Exists(targetFull))
+            if (existing is null)
             {
                 File.WriteAllText(targetFull, url);
                 added++;
             }
-            else if (string.Equals(File.ReadAllText(targetFull), url, StringComparison.Ordinal))
+            else if (string.Equals(existing, url, StringComparison.Ordinal))
             {
                 unchanged++;
             }
@@ -105,7 +116,7 @@ public static class EpisodeStrmSyncEngine
         }
 
         var (removed, foreign) = CleanupStale(rootFull, ownedUrlPrefix, expectedPaths);
-        return new StrmSyncResult(added, updated, unchanged, removed, skipped, foreign, rejected);
+        return new StrmSyncResult(added, updated, unchanged, removed, skipped, foreign + foreignTargets, rejected);
     }
 
     internal static string BuildEpisodeRelativePath(string? showTitle, int? year, long tmdbId, int season, int episode)

@@ -166,6 +166,83 @@ public sealed class EpisodeStrmSyncEngineTests : IDisposable
         Assert.Empty(Directory.GetFiles(tvDir, "*.strm", SearchOption.AllDirectories));
     }
 
+    private string TargetPath() =>
+        Path.Combine(_tempDir, "Severance (2022) [tmdbid-95396]", "Season 02", "Severance S02E05.strm");
+
+    private string WriteAtTarget(string content)
+    {
+        var path = TargetPath();
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, content);
+        return path;
+    }
+
+    private async Task<StrmSyncResult> SyncCachedAsync()
+    {
+        var stateDir = Path.Combine(Path.GetTempPath(), $"openmedia-episode-state-{Guid.NewGuid():N}");
+        using var store = new PrecacheStateStore(stateDir, NullLogger<PrecacheStateStore>.Instance);
+        var cachedFile = Path.Combine(Directory.CreateDirectory(stateDir).FullName, "cached.mp4");
+        File.WriteAllText(cachedFile, "fake video data");
+        await store.UpdateAsync(HashA, _ => new PrecacheEntry
+        {
+            State = PrecacheState.Done,
+            DownloadedBytes = 1024,
+            SizeBytes = 1024,
+            LocalPath = cachedFile,
+            Sha256 = HashA,
+        }, CancellationToken.None);
+        return await EpisodeStrmSyncEngine.SyncAsync(
+            _tempDir, new[] { Episode(HashA) }, BaseUrl, Token, store, NullLogger.Instance, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task CachedHash_KeepsForeignFileAtTargetPath()
+    {
+        var path = WriteAtTarget("https://elsewhere.example/mine");
+
+        var result = await SyncCachedAsync();
+
+        Assert.Equal("https://elsewhere.example/mine", File.ReadAllText(path));
+        Assert.Equal(1, result.Skipped + result.Foreign);
+    }
+
+    [Fact]
+    public async Task CachedHash_DeletesOwnedStrmAtTargetPath()
+    {
+        var path = WriteAtTarget(Url(HashA));
+
+        await SyncCachedAsync();
+
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public async Task ForeignFileAtTargetPath_IsNotOverwritten()
+    {
+        var path = WriteAtTarget("https://elsewhere.example/mine");
+
+        var result = await SyncAsync(Episode(HashA));
+
+        Assert.Equal("https://elsewhere.example/mine", File.ReadAllText(path));
+        Assert.Equal(0, result.Added + result.Updated);
+        Assert.Equal(1, result.Foreign);
+    }
+
+    [Fact]
+    public async Task DuplicateEpisodeVersions_FirstItemWinsStably()
+    {
+        var items = new[] { Episode(HashA), Episode(HashB) };
+
+        var first = await SyncAsync(items);
+        var second = await SyncAsync(items);
+
+        Assert.Equal(Url(HashA), File.ReadAllText(TargetPath()));
+        Assert.Equal(1, first.Added);
+        Assert.Equal(1, first.Skipped);
+        Assert.Equal(1, second.Unchanged);
+        Assert.Equal(0, second.Updated);
+    }
+
     [Fact]
     public void BuildEpisodeRelativePath_FallsBackToUntitled()
     {
