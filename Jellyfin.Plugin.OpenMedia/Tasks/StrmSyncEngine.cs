@@ -21,7 +21,17 @@ public sealed record StrmSyncResult(
     int Removed,
     int Skipped,
     int Foreign,
-    int Rejected);
+    int Rejected)
+{
+    public static StrmSyncResult Combine(StrmSyncResult a, StrmSyncResult b) => new(
+        a.Added + b.Added,
+        a.Updated + b.Updated,
+        a.Unchanged + b.Unchanged,
+        a.Removed + b.Removed,
+        a.Skipped + b.Skipped,
+        a.Foreign + b.Foreign,
+        a.Rejected + b.Rejected);
+}
 
 /// <summary>
 /// Reine STRM-Sync-Logik ohne Jellyfin-Dependencies — kann gegen ein TempDir getestet werden.
@@ -280,6 +290,22 @@ public static class StrmSyncEngine
     {
         var encodedToken = Uri.EscapeDataString(token);
         return $"{baseUrl}/jellyfin/stream/{hash}?token={encodedToken}";
+    }
+
+    internal static (string Folder, string FileStem) MediaLocationFor(LibraryItem item, string movieDir, string tvDir)
+    {
+        if (item.Kind == "episode")
+        {
+            var relative = EpisodeStrmSyncEngine.BuildEpisodeRelativePath(
+                item.Title, item.Year, item.TmdbId!.Value, item.Season!.Value, item.Episode!.Value);
+            return (
+                Path.Combine(tvDir, Path.GetDirectoryName(relative)!),
+                Path.GetFileNameWithoutExtension(relative));
+        }
+
+        return (
+            Path.Combine(movieDir, BuildFolderName(item.Title, item.Year, item.TmdbId!.Value)),
+            BuildMediaFileStem(item.Title, item.Year));
     }
 
     /// <summary>

@@ -60,7 +60,7 @@ public class OpenMediaApiClient
     /// </summary>
     public async Task<IReadOnlyList<LibraryItem>> GetLibraryAsync(CancellationToken ct)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"{_baseUrl}/jellyfin/library");
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"{_baseUrl}/jellyfin/library?include=episodes");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);
 
         using var res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);

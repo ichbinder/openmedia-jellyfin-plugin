@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -67,6 +68,8 @@ public class LibrarySyncRunner : ILibrarySyncRunner
 
         var strmDir = LibrarySyncTask.GetEffectiveStrmDirectory(config.StrmDirectory, _applicationPaths);
 
+        var tvDir = LibrarySyncTask.GetEffectiveTvStrmDirectory(config.TvStrmDirectory, _applicationPaths);
+
         var http = _httpClientFactory.CreateClient(nameof(OpenMediaApiClient));
         var client = new OpenMediaApiClient(http, config.ApiUrl, config.ApiToken);
 
@@ -87,16 +90,23 @@ public class LibrarySyncRunner : ILibrarySyncRunner
             // Pre-Cache-aware sync: loescht .strm fuer gecachte Hashes,
             // skippt .strm-Schreiben wenn PrecacheWorker bereits .mp4 abgelegt hat.
             var precacheState = _precacheStateStore;
+            var movies = items.Where(i => i.Kind != "episode").ToList();
+            var episodes = items.Where(i => i.Kind == "episode").ToList();
             if (precacheState is not null)
             {
                 result = await StrmSyncEngine.SyncAsync(
-                    strmDir, items, config.ApiUrl, config.ApiToken,
+                    strmDir, movies, config.ApiUrl, config.ApiToken,
                     precacheState, _logger, cancellationToken).ConfigureAwait(false);
             }
             else
             {
-                result = StrmSyncEngine.Sync(strmDir, items, config.ApiUrl, config.ApiToken);
+                result = StrmSyncEngine.Sync(strmDir, movies, config.ApiUrl, config.ApiToken);
             }
+
+            var episodeResult = await EpisodeStrmSyncEngine.SyncAsync(
+                tvDir, episodes, config.ApiUrl, config.ApiToken,
+                precacheState, _logger, cancellationToken).ConfigureAwait(false);
+            result = StrmSyncResult.Combine(result, episodeResult);
         }
         catch (Exception ex)
         {

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -25,6 +26,7 @@ namespace Jellyfin.Plugin.OpenMedia.MediaSources;
 public class OpenMediaMediaSourceProvider : IMediaSourceProvider
 {
     private static readonly Regex HashPattern = new("^[0-9a-f]{64}$", RegexOptions.Compiled);
+    private static readonly Regex StreamUrlHashPattern = new("/jellyfin/stream/([0-9a-f]{64})", RegexOptions.Compiled);
 
     private const string LibraryCacheKey = "openmedia:mediasource:library";
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
@@ -269,11 +271,31 @@ public class OpenMediaMediaSourceProvider : IMediaSourceProvider
         }
 
         var fileName = Path.GetFileNameWithoutExtension(path);
-        if (string.IsNullOrEmpty(fileName) || !HashPattern.IsMatch(fileName))
+        if (!string.IsNullOrEmpty(fileName) && HashPattern.IsMatch(fileName))
+        {
+            return fileName;
+        }
+
+        return ReadHashFromStrmContent(path);
+    }
+
+    private static string? ReadHashFromStrmContent(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var buffer = new byte[4096];
+            var read = stream.Read(buffer, 0, buffer.Length);
+            var match = StreamUrlHashPattern.Match(Encoding.UTF8.GetString(buffer, 0, read));
+            return match.Success ? match.Groups[1].Value : null;
+        }
+        catch (IOException)
         {
             return null;
         }
-
-        return fileName;
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 }

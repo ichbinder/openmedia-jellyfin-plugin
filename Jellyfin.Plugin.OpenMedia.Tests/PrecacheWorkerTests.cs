@@ -64,6 +64,8 @@ public sealed class PrecacheWorkerTests : IDisposable
         public Func<string, string, string>? SignUrlFunc { get; set; }
         public Action? RefreshLibraryAction { get; set; }
         public Func<string>? GetStrmDirFunc { get; set; }
+        public Func<string>? GetTvStrmDirFunc { get; set; }
+        public string? LastFileStem { get; private set; }
         public Func<string, long, (bool Ok, long FreeBytes, long RequiredBytes)>? DiskQuotaFunc { get; set; }
 
         // Spy state
@@ -93,7 +95,10 @@ public sealed class PrecacheWorkerTests : IDisposable
             => ResolveItemFunc!(hash, ct);
 
         protected override Task<DownloadResult> PerformDownloadAsync(string hash, string signedUrl, long expectedSize, string targetFolder, string fileNameStem, IProgress<long>? progress, CancellationToken ct)
-            => DownloadFunc!(hash, signedUrl, expectedSize, targetFolder, progress, ct);
+        {
+            LastFileStem = fileNameStem;
+            return DownloadFunc!(hash, signedUrl, expectedSize, targetFolder, progress, ct);
+        }
 
         protected override string CreateSignedUrl(string hash, string userId)
             => SignUrlFunc!(hash, userId);
@@ -106,6 +111,9 @@ public sealed class PrecacheWorkerTests : IDisposable
 
         protected override string GetStrmDirectory()
             => GetStrmDirFunc?.Invoke() ?? "/tmp/strm";
+
+        protected override string GetTvStrmDirectory()
+            => GetTvStrmDirFunc?.Invoke() ?? "/tmp/strm-tv";
 
         protected override (bool Ok, long FreeBytes, long RequiredBytes) CheckDiskQuota(string folder, long expectedSize)
             => DiskQuotaFunc != null
@@ -168,6 +176,36 @@ public sealed class PrecacheWorkerTests : IDisposable
 
         // Library refresh triggered
         Assert.Equal(1, worker.LibraryRefreshCount);
+    }
+
+    #endregion
+
+    #region Episode
+
+    [Fact]
+    public async Task Episode_DownloadedIntoSeasonFolderWithEpisodeStem()
+    {
+        var tvDir = Path.Combine(_tempDir, "tv");
+        var worker = new TestablePrecacheWorker(_logger, _stateStore);
+        worker.GetQueueFunc = _ => Task.FromResult<IReadOnlyList<QueueItem>>(new[] { MakeQueueItem() });
+        worker.ResolveItemFunc = (hash, _) => Task.FromResult<LibraryItem?>(
+            new LibraryItem(hash, 95396, "Severance", 2022, "1048576", 3000, "1080p", "episode", 2, 5));
+        worker.SignUrlFunc = (hash, userId) => $"https://s3.example.com/{hash}?sig=test";
+        worker.GetStrmDirFunc = () => _strmDir;
+        worker.GetTvStrmDirFunc = () => tvDir;
+        worker.RefreshLibraryAction = () => { };
+
+        string? downloadFolder = null;
+        worker.DownloadFunc = (hash, url, size, folder, progress, ct) =>
+        {
+            downloadFolder = folder;
+            return Task.FromResult(new DownloadResult(TestHash, Path.Combine(folder, "x.mp4"), size));
+        };
+
+        await worker.TickAsync(CancellationToken.None);
+
+        Assert.Equal(Path.Combine(tvDir, "Severance (2022) [tmdbid-95396]", "Season 02"), downloadFolder);
+        Assert.Equal("Severance S02E05", worker.LastFileStem);
     }
 
     #endregion

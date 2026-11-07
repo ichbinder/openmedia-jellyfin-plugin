@@ -167,10 +167,15 @@ public class PrecacheWorker : BackgroundService
             }
 
             // (4) Target folder: gleiche Library-Ordner-Logik wie StrmSyncEngine
-            var strmDir = GetStrmDirectory();
-            var folderName = StrmSyncEngine.BuildFolderName(libItem.Title, libItem.Year, libItem.TmdbId.Value);
-            var targetFolder = Path.Combine(strmDir, folderName);
-            var fileStem = StrmSyncEngine.BuildMediaFileStem(libItem.Title, libItem.Year);
+            if (libItem.Kind == "episode" && (libItem.Season is null || libItem.Episode is null))
+            {
+                _logger.LogWarning("precache:no_season_episode {Hash}", hash);
+                await ReportStatusAsync(hash, "failed", "no_season_episode", null, null, ct).ConfigureAwait(false);
+                return;
+            }
+
+            var (targetFolder, fileStem) = StrmSyncEngine.MediaLocationFor(
+                libItem, GetStrmDirectory(), GetTvStrmDirectory());
 
             // Parse file size
             var sizeBytes = ParseFileSize(libItem.FileSize);
@@ -446,7 +451,13 @@ public class PrecacheWorker : BackgroundService
     protected virtual string GetStrmDirectory()
     {
         var config = GetConfig();
-        return GetEffectiveStrmDirectory(config.StrmDirectory, _applicationPaths!);
+        return LibrarySyncTask.GetEffectiveStrmDirectory(config.StrmDirectory, _applicationPaths!);
+    }
+
+    protected virtual string GetTvStrmDirectory()
+    {
+        var config = GetConfig();
+        return LibrarySyncTask.GetEffectiveTvStrmDirectory(config.TvStrmDirectory, _applicationPaths!);
     }
 
     /// <summary>
@@ -477,16 +488,6 @@ public class PrecacheWorker : BackgroundService
         }
 
         return (config.ApiUrl, config.ApiToken);
-    }
-
-    private static string GetEffectiveStrmDirectory(string? configured, IApplicationPaths paths)
-    {
-        if (!string.IsNullOrWhiteSpace(configured))
-        {
-            return configured;
-        }
-
-        return Path.Combine(paths.DataPath, "openmedia-strm");
     }
 
     private static long ParseFileSize(string? fileSize)
