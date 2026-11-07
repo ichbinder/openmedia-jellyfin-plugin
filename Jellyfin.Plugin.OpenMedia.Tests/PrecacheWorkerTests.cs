@@ -213,9 +213,8 @@ public sealed class PrecacheWorkerTests : IDisposable
     #region SHA Mismatch
 
     [Fact]
-    public async Task ShaMismatch_FileDeletedAndStateFailed()
+    public async Task ShaDiffersFromHash_FileKeptAndStateDone()
     {
-        // Arrange
         var worker = new TestablePrecacheWorker(_logger, _stateStore);
         var queueItem = MakeQueueItem();
 
@@ -226,40 +225,28 @@ public sealed class PrecacheWorkerTests : IDisposable
         worker.ReportStatusFunc = (h, s, r, b, sz, _) => Task.CompletedTask;
         worker.RefreshLibraryAction = () => { };
 
-        // Create the .mp4 file to verify it gets deleted on mismatch
         var targetFolder = Path.Combine(_strmDir, "Test Movie (2024) [tmdbid-12345]");
         Directory.CreateDirectory(targetFolder);
-        var finalPath = Path.Combine(targetFolder, $"{TestHash}.mp4");
+        var finalPath = Path.Combine(targetFolder, "Test Movie (2024).mp4");
         await File.WriteAllTextAsync(finalPath, "fake content");
 
-        // Download returns a SHA256 that doesn't match the hash
-        var wrongSha = MismatchHash;
         worker.DownloadFunc = (hash, url, size, folder, progress, ct) =>
-            Task.FromResult(new DownloadResult(wrongSha, finalPath, size));
+            Task.FromResult(new DownloadResult(MismatchHash, finalPath, size));
 
-        // Act
         var delay = await worker.TickAsync(CancellationToken.None);
 
-        // Assert
         Assert.Equal(PrecacheWorker.PollingInterval, delay);
+        Assert.True(File.Exists(finalPath));
 
-        // .mp4 should be deleted
-        Assert.False(File.Exists(finalPath));
-
-        // State should be Failed
         var entry = await _stateStore.GetAsync(TestHash, CancellationToken.None);
         Assert.NotNull(entry);
-        Assert.Equal(PrecacheState.Failed, entry.State);
-        Assert.Equal("sha_mismatch", entry.LastError);
+        Assert.Equal(PrecacheState.Done, entry.State);
+        Assert.Equal(MismatchHash, entry.Sha256);
 
-        // Status reports: downloading, failed
         Assert.Equal(2, worker.StatusReports.Count);
         Assert.Equal("downloading", worker.StatusReports[0].State);
-        Assert.Equal("failed", worker.StatusReports[1].State);
-        Assert.Equal("sha_mismatch", worker.StatusReports[1].Reason);
-
-        // Library refresh NOT triggered
-        Assert.Equal(0, worker.LibraryRefreshCount);
+        Assert.Equal("done", worker.StatusReports[1].State);
+        Assert.Equal(1, worker.LibraryRefreshCount);
     }
 
     #endregion
@@ -547,7 +534,7 @@ public sealed class PrecacheWorkerTests : IDisposable
         // Create target folder and a .partial file to verify cleanup
         var targetFolder = Path.Combine(_strmDir, "Test Movie (2024) [tmdbid-12345]");
         Directory.CreateDirectory(targetFolder);
-        var partialPath = Path.Combine(targetFolder, $"{TestHash}.mp4.partial");
+        var partialPath = Path.Combine(targetFolder, "Test Movie (2024).mp4.partial");
         await File.WriteAllTextAsync(partialPath, "partial content");
 
         // Download throws IOException with "disk full" message
@@ -596,7 +583,7 @@ public sealed class PrecacheWorkerTests : IDisposable
 
         var targetFolder = Path.Combine(_strmDir, "Test Movie (2024) [tmdbid-12345]");
         Directory.CreateDirectory(targetFolder);
-        var partialPath = Path.Combine(targetFolder, $"{TestHash}.mp4.partial");
+        var partialPath = Path.Combine(targetFolder, "Test Movie (2024).mp4.partial");
         await File.WriteAllTextAsync(partialPath, "partial content");
 
         // Download throws IOException with ERROR_DISK_FULL HResult

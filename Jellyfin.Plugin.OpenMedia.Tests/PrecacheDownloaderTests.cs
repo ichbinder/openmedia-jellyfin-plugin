@@ -195,7 +195,7 @@ public sealed class PrecacheDownloaderTests : IDisposable
     }
 
     [Fact]
-    public async Task SizeMismatch_ThrowsIOExceptionAndKeepsPartial()
+    public async Task SizeMismatch_OnlyWarnsAndCompletesDownload()
     {
         var (data, _) = GenerateOneMb();
 
@@ -209,24 +209,21 @@ public sealed class PrecacheDownloaderTests : IDisposable
 
         var downloader = new PrecacheDownloader(client, _logger);
 
-        // Erwarte 2x die tatsaechliche Groesse → mismatch
-        var ex = await Assert.ThrowsAsync<IOException>(() =>
-            downloader.DownloadAsync(
-                TestHash,
-                "https://s3.example.com/video.mp4",
-                data.Length * 2, // falsche ExpectedSize
-                _tempDir,
-                TestHash,
-                progress: null,
-                CancellationToken.None));
+        var result = await downloader.DownloadAsync(
+            TestHash,
+            "https://s3.example.com/video.mp4",
+            data.Length * 2,
+            _tempDir,
+            TestHash,
+            progress: null,
+            CancellationToken.None);
 
-        Assert.Contains("Size mismatch", ex.Message);
-
-        // .partial bleibt erhalten, .mp4 existiert nicht
         var partialPath = Path.Combine(_tempDir, $"{TestHash}.mp4.partial");
         var finalPath = Path.Combine(_tempDir, $"{TestHash}.mp4");
-        Assert.True(File.Exists(partialPath));
-        Assert.False(File.Exists(finalPath));
+        Assert.Equal(finalPath, result.FinalPath);
+        Assert.True(File.Exists(finalPath));
+        Assert.False(File.Exists(partialPath));
+        Assert.Equal(data.Length, new FileInfo(finalPath).Length);
     }
 
     [Fact]
